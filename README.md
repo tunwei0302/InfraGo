@@ -1,2 +1,17 @@
-# InfraGo
-A Mobile App Solution
+# infra_go
+
+InfraGo is a dual-role Flutter mobile app (commuter + driver, in one codebase) that combines e-hailing features — trip planning/maps, camera-based pickup landmark verification, driver dispatch, and wait-time reward compensation — with live public open data from data.gov.my (vehicle registrations, transit ridership, fuel prices, GTFS positions), supporting UN SDG 9 (Industry, Innovation, Infrastructure) in Malaysia.
+
+## Getting Started
+
+This project is a starting point for a Flutter application.
+
+A few resources to get you started if this is your first Flutter project:
+
+- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
+- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
+- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+
+For help getting started with Flutter development, view the
+[online documentation](https://docs.flutter.dev/), which offers tutorials,
+samples, guidance on mobile development, and a full API reference.

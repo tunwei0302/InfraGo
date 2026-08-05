@@ -1,0 +1,35 @@
+{
+    "name": "infra_go",
+    "short_name": "infra_go",
+    "start_url": ".",
+    "display": "standalone",
+    "background_color": "#0175C2",
+    "theme_color": "#0175C2",
+    "description": "InfraGo is a dual-role Flutter mobile app (commuter + driver, in one codebase) that combines e-hailing features — trip planning/maps, camera-based pickup landmark verification, driver dispatch, and wait-time reward compensation — with live public open data from data.gov.my (vehicle registrations, transit ridership, fuel prices, GTFS positions), supporting UN SDG 9 (Industry, Innovation, Infrastructure) in Malaysia.",
+    "orientation": "portrait-primary",
+    "prefer_related_applications": false,
+    "icons": [
+        {
+            "src": "icons/Icon-192.png",
+            "sizes": "192x192",
+            "type": "image/png"
+        },
+        {
+            "src": "icons/Icon-512.png",
+            "sizes": "512x512",
+            "type": "image/png"
+        },
+        {
+            "src": "icons/Icon-maskable-192.png",
+            "sizes": "192x192",
+            "type": "image/png",
+            "purpose": "maskable"
+        },
+        {
+            "src": "icons/Icon-maskable-512.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "maskable"
+        }
+    ]
+}
