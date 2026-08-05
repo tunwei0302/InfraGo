@@ -1,4 +1,4 @@
-# infra_go
+# InfraGo
 
 InfraGo is a dual-role Flutter mobile app (commuter + driver, in one codebase) that combines e-hailing features — trip planning/maps, camera-based pickup landmark verification, driver dispatch, and wait-time reward compensation — with live public open data from data.gov.my (vehicle registrations, transit ridership, fuel prices, GTFS positions), supporting UN SDG 9 (Industry, Innovation, Infrastructure) in Malaysia.
 
