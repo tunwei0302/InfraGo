@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 
 import 'analytics_screen.dart';
-import 'app_state.dart';
 import 'app_theme.dart';
 import 'booking_form_screen.dart';
 import 'chat_with_driver_screen.dart';
@@ -53,17 +51,7 @@ class _TripPlannerTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('InfraGo · Commuter'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.swap_horiz),
-            onPressed: () {
-              context.read<AppState>().toggleRole();
-            },
-          ),
-        ],
-      ),
+      appBar: AppBar(title: const Text('InfraGo · Commuter')),
       body: Padding(
         padding: const EdgeInsets.all(AppSpacing.marginMobile),
         child: Column(

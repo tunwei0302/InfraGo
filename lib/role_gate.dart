@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'app_state.dart';
 import 'commuter_home_screen.dart';
 import 'driver_home_screen.dart';
+import 'login_screen.dart';
 
 class RoleGate extends StatelessWidget {
   const RoleGate({super.key});
@@ -12,9 +13,18 @@ class RoleGate extends StatelessWidget {
   Widget build(BuildContext context) {
     return Consumer<AppState>(
       builder: (context, appState, child) {
-        return appState.isDriverMode
-            ? const DriverHomeScreen()
-            : const CommuterHomeScreen();
+        if (appState.session == null) {
+          return const LoginScreen();
+        }
+        if (appState.isLoadingRole) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+        if (appState.role == 'driver') {
+          return const DriverHomeScreen();
+        }
+        return const CommuterHomeScreen();
       },
     );
   }

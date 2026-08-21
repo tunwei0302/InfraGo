@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 
-import 'app_state.dart';
 import 'app_theme.dart';
 import 'available_orders_screen.dart';
 
@@ -53,17 +51,7 @@ class _DriverHubTabState extends State<_DriverHubTab> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('InfraGo · Driver'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.swap_horiz),
-            onPressed: () {
-              context.read<AppState>().toggleRole();
-            },
-          ),
-        ],
-      ),
+      appBar: AppBar(title: const Text('InfraGo · Driver')),
       body: Padding(
         padding: const EdgeInsets.all(AppSpacing.marginMobile),
         child: Row(
