@@ -9,11 +9,13 @@ class AppState extends ChangeNotifier {
   Session? _session;
   String? _role;
   bool _isLoadingRole = false;
+  bool _roleLoadFailed = false;
   late final StreamSubscription<AuthState> _authSubscription;
 
   Session? get session => _session;
   String? get role => _role;
   bool get isLoadingRole => _isLoadingRole;
+  bool get roleLoadFailed => _roleLoadFailed;
 
   AppState() {
     _session = supabase.auth.currentSession;
@@ -33,6 +35,7 @@ class AppState extends ChangeNotifier {
 
   Future<void> _loadRole() async {
     _isLoadingRole = true;
+    _roleLoadFailed = false;
     notifyListeners();
     try {
       final data = await supabase
@@ -43,10 +46,13 @@ class AppState extends ChangeNotifier {
       _role = data['role'] as String;
     } catch (_) {
       _role = null;
+      _roleLoadFailed = true;
     }
     _isLoadingRole = false;
     notifyListeners();
   }
+
+  Future<void> retryLoadRole() => _loadRole();
 
   Future<void> signOut() => supabase.auth.signOut();
 

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'app_theme.dart';
 import 'supabase_config.dart';
@@ -36,24 +37,24 @@ class _SignUpScreenState extends State<SignUpScreen> {
       _errorMessage = null;
     });
     try {
-      final response = await supabase.auth.signUp(
+      await supabase.auth.signUp(
         email: _emailController.text.trim(),
         password: _passwordController.text,
-      );
-      final user = response.user;
-      if (user != null) {
-        await supabase.from('profiles').insert({
-          'id': user.id,
+        data: {
           'name': _nameController.text.trim(),
           'role': _role,
-        });
-      }
+        },
+      );
       if (mounted) {
         Navigator.pop(context);
       }
+    } on AuthException catch (e) {
+      setState(() {
+        _errorMessage = e.message;
+      });
     } catch (e) {
       setState(() {
-        _errorMessage = 'Sign up failed. Please try again.';
+        _errorMessage = 'Sign up failed: $e';
       });
     } finally {
       if (mounted) {

@@ -21,6 +21,27 @@ class RoleGate extends StatelessWidget {
             body: Center(child: CircularProgressIndicator()),
           );
         }
+        if (appState.roleLoadFailed) {
+          return Scaffold(
+            body: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text('Could not load your profile.'),
+                  const SizedBox(height: 16),
+                  ElevatedButton(
+                    onPressed: () => appState.retryLoadRole(),
+                    child: const Text('Retry'),
+                  ),
+                  TextButton(
+                    onPressed: () => appState.signOut(),
+                    child: const Text('Sign out'),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
         if (appState.role == 'driver') {
           return const DriverHomeScreen();
         }

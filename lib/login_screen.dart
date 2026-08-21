@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'app_theme.dart';
 import 'sign_up_screen.dart';
@@ -38,9 +39,13 @@ class _LoginScreenState extends State<LoginScreen> {
         email: _emailController.text.trim(),
         password: _passwordController.text,
       );
+    } on AuthException catch (e) {
+      setState(() {
+        _errorMessage = e.message;
+      });
     } catch (e) {
       setState(() {
-        _errorMessage = 'Login failed. Check your email and password.';
+        _errorMessage = 'Login failed: $e';
       });
     } finally {
       if (mounted) {

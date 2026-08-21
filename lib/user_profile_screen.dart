@@ -16,6 +16,7 @@ class UserProfileScreen extends StatefulWidget {
 class _UserProfileScreenState extends State<UserProfileScreen> {
   Map<String, dynamic>? _profile;
   bool _isLoading = true;
+  bool _loadFailed = false;
 
   @override
   void initState() {
@@ -28,11 +29,22 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     if (user == null) {
       return;
     }
-    final data = await supabase.from('profiles').select().eq('id', user.id).single();
     setState(() {
-      _profile = data;
-      _isLoading = false;
+      _isLoading = true;
+      _loadFailed = false;
     });
+    try {
+      final data = await supabase.from('profiles').select().eq('id', user.id).single();
+      setState(() {
+        _profile = data;
+        _isLoading = false;
+      });
+    } catch (_) {
+      setState(() {
+        _loadFailed = true;
+        _isLoading = false;
+      });
+    }
   }
 
   @override
@@ -53,7 +65,21 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : Padding(
+          : _loadFailed
+              ? Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text('Could not load your profile.'),
+                      const SizedBox(height: 12),
+                      ElevatedButton(
+                        onPressed: _loadProfile,
+                        child: const Text('Retry'),
+                      ),
+                    ],
+                  ),
+                )
+              : Padding(
               padding: const EdgeInsets.all(AppSpacing.marginMobile),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
