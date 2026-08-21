@@ -4,6 +4,8 @@ import 'analytics_screen.dart';
 import 'app_theme.dart';
 import 'booking_form_screen.dart';
 import 'chat_with_driver_screen.dart';
+import 'ride.dart';
+import 'supabase_config.dart';
 import 'user_profile_screen.dart';
 
 class CommuterHomeScreen extends StatefulWidget {
@@ -48,8 +50,18 @@ class _CommuterHomeScreenState extends State<CommuterHomeScreen> {
 class _TripPlannerTab extends StatelessWidget {
   const _TripPlannerTab();
 
+  void _openBookingSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => const BookingFormSheet(),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final riderId = supabase.auth.currentUser!.id;
+
     return Scaffold(
       appBar: AppBar(title: const Text('InfraGo · Commuter')),
       body: Padding(
@@ -67,13 +79,32 @@ class _TripPlannerTab extends StatelessWidget {
               child: const Text('Map View'),
             ),
             const SizedBox(height: AppSpacing.md),
-            ElevatedButton(
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const BookingFormScreen()),
+            StreamBuilder<List<Map<String, dynamic>>>(
+              stream: supabase
+                  .from('rides')
+                  .stream(primaryKey: ['id'])
+                  .eq('rider_id', riderId)
+                  .order('created_at'),
+              builder: (context, snapshot) {
+                final rides = (snapshot.data ?? [])
+                    .map(Ride.fromJson)
+                    .where((ride) => ride.status != 'completed' && ride.status != 'cancelled')
+                    .toList();
+                if (rides.isEmpty) {
+                  return const SizedBox.shrink();
+                }
+                final activeRide = rides.last;
+                return Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(AppSpacing.gutter),
+                    child: Text('Trip status: ${activeRide.status}'),
+                  ),
                 );
               },
+            ),
+            const SizedBox(height: AppSpacing.md),
+            ElevatedButton(
+              onPressed: () => _openBookingSheet(context),
               child: const Text('Book a Ride'),
             ),
           ],
