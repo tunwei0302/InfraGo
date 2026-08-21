@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'app_theme.dart';
 import 'available_orders_screen.dart';
+import 'user_profile_screen.dart';
 
 class DriverHomeScreen extends StatefulWidget {
   const DriverHomeScreen({super.key});
@@ -16,6 +17,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
   static const List<Widget> _pages = [
     _DriverHubTab(),
     AvailableOrdersScreen(),
+    UserProfileScreen(),
   ];
 
   @override
@@ -32,6 +34,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.local_taxi), label: 'Hub'),
           BottomNavigationBarItem(icon: Icon(Icons.list_alt), label: 'Orders'),
+          BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Profile'),
         ],
       ),
     );

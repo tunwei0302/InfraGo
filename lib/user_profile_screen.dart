@@ -1,29 +1,86 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
+import 'app_state.dart';
 import 'app_theme.dart';
+import 'rewards_screen.dart';
+import 'supabase_config.dart';
 
-class UserProfileScreen extends StatelessWidget {
+class UserProfileScreen extends StatefulWidget {
   const UserProfileScreen({super.key});
 
   @override
+  State<UserProfileScreen> createState() => _UserProfileScreenState();
+}
+
+class _UserProfileScreenState extends State<UserProfileScreen> {
+  Map<String, dynamic>? _profile;
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProfile();
+  }
+
+  Future<void> _loadProfile() async {
+    final user = supabase.auth.currentUser;
+    if (user == null) {
+      return;
+    }
+    final data = await supabase.from('profiles').select().eq('id', user.id).single();
+    setState(() {
+      _profile = data;
+      _isLoading = false;
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final email = supabase.auth.currentUser?.email ?? '-';
+
     return Scaffold(
-      appBar: AppBar(title: const Text('User Profile')),
-      body: Padding(
-        padding: const EdgeInsets.all(AppSpacing.marginMobile),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const CircleAvatar(radius: 40, child: Icon(Icons.person, size: 40)),
-            const SizedBox(height: AppSpacing.md),
-            Text('Name', style: AppTextStyles.labelCaps),
-            const Text('-'),
-            const SizedBox(height: AppSpacing.gutter),
-            Text('Email', style: AppTextStyles.labelCaps),
-            const Text('-'),
-          ],
-        ),
+      appBar: AppBar(
+        title: const Text('User Profile'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.logout),
+            onPressed: () {
+              context.read<AppState>().signOut();
+            },
+          ),
+        ],
       ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : Padding(
+              padding: const EdgeInsets.all(AppSpacing.marginMobile),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const CircleAvatar(radius: 40, child: Icon(Icons.person, size: 40)),
+                  const SizedBox(height: AppSpacing.md),
+                  Text('Name', style: AppTextStyles.labelCaps),
+                  Text(_profile?['name'] as String? ?? '-'),
+                  const SizedBox(height: AppSpacing.gutter),
+                  Text('Email', style: AppTextStyles.labelCaps),
+                  Text(email),
+                  const SizedBox(height: AppSpacing.gutter),
+                  Text('Role', style: AppTextStyles.labelCaps),
+                  Text(_profile?['role'] as String? ?? '-'),
+                  const SizedBox(height: AppSpacing.md),
+                  ElevatedButton(
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (context) => const RewardsScreen()),
+                      );
+                    },
+                    child: const Text('View Rewards'),
+                  ),
+                ],
+              ),
+            ),
     );
   }
 }
