@@ -4,7 +4,14 @@ import 'app_theme.dart';
 import 'supabase_config.dart';
 
 class BookingFormSheet extends StatefulWidget {
-  const BookingFormSheet({super.key});
+  const BookingFormSheet({
+    super.key,
+    this.initialPickup = '',
+    this.initialDestination = '',
+  });
+
+  final String initialPickup;
+  final String initialDestination;
 
   @override
   State<BookingFormSheet> createState() => _BookingFormSheetState();
@@ -12,9 +19,18 @@ class BookingFormSheet extends StatefulWidget {
 
 class _BookingFormSheetState extends State<BookingFormSheet> {
   final _formKey = GlobalKey<FormState>();
-  final _pickupController = TextEditingController();
-  final _destinationController = TextEditingController();
+  late final TextEditingController _pickupController;
+  late final TextEditingController _destinationController;
   bool _isSubmitting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _pickupController = TextEditingController(text: widget.initialPickup);
+    _destinationController = TextEditingController(
+      text: widget.initialDestination,
+    );
+  }
 
   @override
   void dispose() {
@@ -48,7 +64,8 @@ class _BookingFormSheetState extends State<BookingFormSheet> {
         left: AppSpacing.marginMobile,
         right: AppSpacing.marginMobile,
         top: AppSpacing.marginMobile,
-        bottom: MediaQuery.of(context).viewInsets.bottom + AppSpacing.marginMobile,
+        bottom:
+            MediaQuery.of(context).viewInsets.bottom + AppSpacing.marginMobile,
       ),
       child: Form(
         key: _formKey,
