@@ -42,6 +42,7 @@ $RECYCLE.BIN/
 .pub/
 /build/
 /coverage/
+/tmp/
 
 # Symbolication related
 app.*.symbols
