@@ -47,6 +47,13 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     }
   }
 
+  String _formatRole(String? role) {
+    if (role == null || role.isEmpty) {
+      return '-';
+    }
+    return role[0].toUpperCase() + role.substring(1).toLowerCase();
+  }
+
   @override
   Widget build(BuildContext context) {
     final email = supabase.auth.currentUser?.email ?? '-';
@@ -93,7 +100,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                   Text(email),
                   const SizedBox(height: AppSpacing.gutter),
                   Text('Role', style: AppTextStyles.labelCaps),
-                  Text(_profile?['role'] as String? ?? '-'),
+                  Text(_formatRole(_profile?['role'] as String?)),
                   const SizedBox(height: AppSpacing.md),
                   ElevatedButton(
                     onPressed: () {
