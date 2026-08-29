@@ -81,6 +81,25 @@ void main() {
       expect(result.map((v) => v.anonymisedId), ['A', 'M', 'Z']);
     });
 
+    test('drops rows without the database-issued anonymised id', () {
+      final svc = VehiclePresenceService(now: now);
+      final missingId = _raw(anonymisedId: 'A', loc: _close, seenAt: fresh)
+        ..['anonymised_id'] = null;
+      final blankId = _raw(anonymisedId: 'B', loc: _close, seenAt: fresh)
+        ..['anonymised_id'] = '';
+      final result = svc.filterCoarse(
+        raw: [
+          missingId,
+          blankId,
+          _raw(anonymisedId: 'C', loc: _close, seenAt: fresh),
+        ],
+        center: _center,
+        category: 'economy',
+        radiusMeters: 2000,
+      );
+      expect(result.map((v) => v.anonymisedId), ['C']);
+    });
+
     test('isFresh returns false for entries over 60 seconds', () {
       final svc = VehiclePresenceService(now: now);
       final vehicle = CoarseVehicle(

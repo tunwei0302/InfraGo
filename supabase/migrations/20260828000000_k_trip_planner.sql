@@ -289,6 +289,49 @@ REVOKE ALL ON FUNCTION create_carpool_match(
   UUID, UUID, INTEGER, TEXT[], INTEGER[], DOUBLE PRECISION, DOUBLE PRECISION,
   DOUBLE PRECISION, DOUBLE PRECISION
 ) FROM PUBLIC;
+-- Drivers claim a matched group as one atomic unit: the group row and every
+-- member ride become driver_assigned in the same transaction, which is also
+-- the precondition the chat insert policy needs to open the conversations.
+CREATE OR REPLACE FUNCTION accept_carpool_group(p_group_id UUID)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_group ride_groups%ROWTYPE;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RETURN jsonb_build_object('success', FALSE, 'reason', 'authentication_required');
+  END IF;
+  SELECT * INTO v_group FROM ride_groups WHERE id = p_group_id FOR UPDATE;
+  IF v_group.id IS NULL THEN
+    RETURN jsonb_build_object('success', FALSE, 'reason', 'group_not_found');
+  END IF;
+  IF v_group.status != 'matched' OR v_group.driver_id IS NOT NULL THEN
+    RETURN jsonb_build_object('success', FALSE, 'reason', 'group_not_available');
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM ride_group_members
+    WHERE group_id = v_group.id AND rider_id = auth.uid()
+  ) THEN
+    RETURN jsonb_build_object('success', FALSE, 'reason', 'rider_cannot_accept_own_group');
+  END IF;
+
+  UPDATE ride_groups
+  SET driver_id = auth.uid(), status = 'driver_assigned'
+  WHERE id = v_group.id;
+
+  UPDATE rides
+  SET driver_id = auth.uid(), status = 'driver_assigned'
+  WHERE id IN (
+    SELECT ride_id FROM ride_group_members WHERE group_id = v_group.id
+  );
+
+  RETURN jsonb_build_object('success', TRUE, 'group_id', v_group.id);
+END;
+$$;
+
 REVOKE ALL ON FUNCTION cancel_carpool_group_membership(UUID) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION upsert_my_driver_presence(
   DOUBLE PRECISION, DOUBLE PRECISION, TEXT[], BOOLEAN, BOOLEAN,
@@ -299,11 +342,17 @@ GRANT EXECUTE ON FUNCTION create_carpool_match(
   DOUBLE PRECISION, DOUBLE PRECISION
 ) TO authenticated;
 GRANT EXECUTE ON FUNCTION cancel_carpool_group_membership(UUID) TO authenticated;
+REVOKE ALL ON FUNCTION accept_carpool_group(UUID) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION accept_carpool_group(UUID) TO authenticated;
 
 ALTER TABLE ride_groups ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ride_group_members ENABLE ROW LEVEL SECURITY;
 ALTER TABLE assigned_driver_location ENABLE ROW LEVEL SECURITY;
 ALTER TABLE transit_stops ENABLE ROW LEVEL SECURITY;
+-- No policies: the coarse presence table is database-owned. Drivers publish
+-- only through upsert_my_driver_presence, which derives the anonymised id
+-- server-side; riders read it only through nearby_driver_presence.
+ALTER TABLE driver_presence ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS ride_groups_participant_read ON ride_groups;
 CREATE POLICY ride_groups_participant_read ON ride_groups FOR SELECT USING (

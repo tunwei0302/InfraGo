@@ -497,6 +497,8 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
         }
       }
     } on LocationSearchException {
+      // A failed reverse lookup keeps the tapped coordinates as-is; the
+      // caller's finally block already clears the resolving flag.
     } finally {
       if (mounted) setState(() => _isResolvingPin = false);
     }
@@ -801,7 +803,7 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
             icon: const Icon(Icons.directions_transit),
           ),
           if (phase.index >= TripPlannerPhase.routePreview.index &&
-              phase.index < TripPlannerPhase.searchingDriver.index ||
+                  phase.index < TripPlannerPhase.searchingDriver.index ||
               phase == TripPlannerPhase.completed ||
               phase == TripPlannerPhase.cancelled)
             IconButton(

@@ -48,4 +48,49 @@ void main() {
     expect(sql, contains("r.status IN ('driver_assigned', 'en_route')"));
     expect(sql, contains('sender_id = auth.uid()'));
   });
+
+  test('group acceptance assigns driver and opens chats atomically', () {
+    final fnStart = sql.indexOf(
+      'CREATE OR REPLACE FUNCTION accept_carpool_group(p_group_id UUID)',
+    );
+    final fnEnd = sql.indexOf(
+      'REVOKE ALL ON FUNCTION accept_carpool_group',
+      fnStart,
+    );
+    final fnSql = sql.substring(fnStart, fnEnd);
+    expect(fnSql, contains('FOR UPDATE'));
+    expect(fnSql, contains("v_group.status != 'matched'"));
+    expect(fnSql, contains('v_group.driver_id IS NOT NULL'));
+    expect(fnSql, contains('rider_id = auth.uid()'));
+    expect(
+      fnSql,
+      contains("SET driver_id = auth.uid(), status = 'driver_assigned'"),
+    );
+    expect(
+      fnSql,
+      contains(
+        'SELECT ride_id FROM ride_group_members WHERE group_id = v_group.id',
+      ),
+    );
+    expect(
+      sql,
+      contains(
+        'GRANT EXECUTE ON FUNCTION accept_carpool_group(UUID) TO authenticated',
+      ),
+    );
+  });
+
+  test('coarse presence is database-owned with no client-supplied id', () {
+    expect(
+      sql,
+      contains('ALTER TABLE driver_presence ENABLE ROW LEVEL SECURITY'),
+    );
+    final fnStart = sql.indexOf(
+      'CREATE OR REPLACE FUNCTION upsert_my_driver_presence(',
+    );
+    final fnEnd = sql.indexOf('RETURNS VOID', fnStart);
+    final signature = sql.substring(fnStart, fnEnd);
+    expect(signature, isNot(contains('anonymised')));
+    expect(sql, contains("'V-' || upper(substr(md5(auth.uid()::TEXT"));
+  });
 }

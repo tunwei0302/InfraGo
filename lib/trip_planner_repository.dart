@@ -180,8 +180,7 @@ class SupabaseTripPlannerRepository implements TripPlannerRepository {
           'cancel_carpool_group_membership',
           params: {'p_ride_id': rideId},
         );
-      } catch (_) {
-      }
+      } catch (_) {}
       await client
           .from('rides')
           .update({

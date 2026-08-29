@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math';
 
 import 'package:latlong2/latlong.dart';
 
@@ -90,8 +89,11 @@ class VehiclePresenceService {
         if (lat == null || lng == null) continue;
         final loc = LatLng(lat, lng);
         if (haversineMeters(center, loc) > radiusMeters) continue;
-        final anonymisedId =
-            r['anonymised_id'] as String? ?? _generateAnonymised();
+        // The database issues the anonymised id; a row without one means the
+        // contract drifted, so it is dropped instead of shown under a locally
+        // invented marker.
+        final anonymisedId = r['anonymised_id'] as String?;
+        if (anonymisedId == null || anonymisedId.isEmpty) continue;
         out.add(
           CoarseVehicle(
             anonymisedId: anonymisedId,
@@ -163,12 +165,5 @@ class VehiclePresenceService {
       return const Stream<ExactDriver?>.empty();
     }
     return factory(rideId).map(parseExact);
-  }
-
-  static final Random _r = Random();
-  static String _generateAnonymised() {
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-    final code = List.generate(6, (_) => chars[_r.nextInt(chars.length)]);
-    return 'V-${code.join()}';
   }
 }
