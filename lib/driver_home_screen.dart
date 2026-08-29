@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'app_theme.dart';
 import 'available_orders_screen.dart';
+import 'chat_with_driver_screen.dart';
 import 'user_profile_screen.dart';
 
 class DriverHomeScreen extends StatefulWidget {
@@ -17,6 +18,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
   static const List<Widget> _pages = [
     _DriverHubTab(),
     AvailableOrdersScreen(),
+    ChatWithDriverScreen(title: 'Chat with Rider'),
     UserProfileScreen(),
   ];
 
@@ -34,6 +36,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.local_taxi), label: 'Hub'),
           BottomNavigationBarItem(icon: Icon(Icons.list_alt), label: 'Orders'),
+          BottomNavigationBarItem(icon: Icon(Icons.chat), label: 'Chat'),
           BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Profile'),
         ],
       ),
