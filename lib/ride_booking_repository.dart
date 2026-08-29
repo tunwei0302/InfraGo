@@ -44,6 +44,7 @@ class RideBookingRepository {
     String? pickupNote,
     String? transitStopId,
     String? transitStopName,
+    int rewardPointsToRedeem = 0,
   }) async {
     Map<String, dynamic> map;
     try {
@@ -66,6 +67,7 @@ class RideBookingRepository {
           'p_pickup_note': pickupNote,
           'p_transit_stop_id': transitStopId,
           'p_transit_stop_name': transitStopName,
+          'p_reward_points_to_redeem': rewardPointsToRedeem,
         },
       );
       map = Map<String, dynamic>.from(result as Map);

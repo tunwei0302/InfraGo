@@ -22,6 +22,7 @@ import 'pickup_confirmation_sheet.dart';
 import 'pickup_landmark_service.dart';
 import 'ride.dart';
 import 'ride_booking_repository.dart';
+import 'rewards_repository.dart';
 import 'shared_route_markers.dart';
 import 'supabase_carpool_service.dart';
 import 'supabase_config.dart';
@@ -49,7 +50,14 @@ enum _MapEditTarget { pickup, destination }
 enum _TransitStatus { idle, loading, data, empty, error }
 
 class TripPlannerMapScreen extends StatefulWidget {
-  const TripPlannerMapScreen({super.key});
+  const TripPlannerMapScreen({
+    super.key,
+    this.initialPickup,
+    this.initialDestination,
+  });
+
+  final GeoPlace? initialPickup;
+  final GeoPlace? initialDestination;
 
   @override
   State<TripPlannerMapScreen> createState() => _TripPlannerMapScreenState();
@@ -85,9 +93,11 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
   late final TransitStopRepository _transitRepository;
   late final RideBookingRepository _rideBookingRepository;
   late final PaymentRepository _paymentRepository;
+  late final RewardsRepository _rewardsRepository;
   late final PickupLandmarkService _landmarkService;
   String _presenceCategory = 'economy_4';
   PaymentMethod? _selectedPaymentMethod;
+  int _selectedRewardPoints = 0;
   PickedLandmarkPhoto? _pendingLandmarkPhoto;
 
   @override
@@ -97,10 +107,15 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
     _state.addListener(_onStateChanged);
     _state.onRequestSubmitted(_handleRequestSubmitted);
     _state.onCancelRequested(_handleCancelled);
+    if (widget.initialPickup != null) _state.setPickup(widget.initialPickup!);
+    if (widget.initialDestination != null) {
+      _state.setDestination(widget.initialDestination!);
+    }
     _tripRepository = SupabaseTripPlannerRepository(supabase);
     _rideBookingRepository = RideBookingRepository(supabase);
     _paymentRepository = PaymentRepository(supabase);
     _landmarkService = PickupLandmarkService();
+    _rewardsRepository = RewardsRepository(supabase);
     _carpoolService = SupabaseCarpoolService(
       client: supabase,
       matcher: CarpoolMatcher(routing: OsrmCarpoolRouting(_routing)),
@@ -177,6 +192,7 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
             pickupNote: _state.pickupNote,
             paymentMethod: paymentMethod,
             clientRequestId: _generateClientRequestId(),
+            rewardPointsToRedeem: _selectedRewardPoints,
           );
       if (landmarkPhoto != null) {
         await _uploadLandmarkPhoto(userId, result.rideId, landmarkPhoto);
@@ -188,6 +204,7 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
       throw TripPlannerRepositoryException('Booking failed: $error');
     } finally {
       _selectedPaymentMethod = null;
+      _selectedRewardPoints = 0;
       _pendingLandmarkPhoto = null;
     }
   }
@@ -764,18 +781,20 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
       durationSeconds: route.durationSeconds,
     );
     if (!mounted) return;
-    final method = await CheckoutSheet.show(
+    final selection = await CheckoutSheet.show(
       context,
       amount: quote.amount,
       currency: quote.currency,
       paymentRepository: _paymentRepository,
+      rewardsRepository: _rewardsRepository,
     );
     if (!mounted) return;
-    if (method == null) {
+    if (selection == null) {
       if (_state.phase == TripPlannerPhase.pickupConfirmation) _state.goBack();
       return;
     }
-    _selectedPaymentMethod = method;
+    _selectedPaymentMethod = selection.method;
+    _selectedRewardPoints = selection.rewardPointsToRedeem;
 
     final ok = await _state.submitRideRequest();
     if (ok) {

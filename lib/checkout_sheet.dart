@@ -5,6 +5,17 @@ import 'package:flutter/material.dart';
 import 'app_theme.dart';
 import 'payment_method.dart';
 import 'payment_repository.dart';
+import 'rewards_repository.dart';
+
+class CheckoutSelection {
+  const CheckoutSelection({
+    required this.method,
+    required this.rewardPointsToRedeem,
+  });
+
+  final PaymentMethod method;
+  final int rewardPointsToRedeem;
+}
 
 class CheckoutSheet extends StatefulWidget {
   const CheckoutSheet({
@@ -12,19 +23,22 @@ class CheckoutSheet extends StatefulWidget {
     required this.amount,
     required this.currency,
     required this.paymentRepository,
+    required this.rewardsRepository,
   });
 
   final double amount;
   final String currency;
   final PaymentRepository paymentRepository;
+  final RewardsRepository rewardsRepository;
 
-  static Future<PaymentMethod?> show(
+  static Future<CheckoutSelection?> show(
     BuildContext context, {
     required double amount,
     required String currency,
     required PaymentRepository paymentRepository,
+    required RewardsRepository rewardsRepository,
   }) {
-    return showModalBottomSheet<PaymentMethod>(
+    return showModalBottomSheet<CheckoutSelection>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
@@ -33,6 +47,7 @@ class CheckoutSheet extends StatefulWidget {
         amount: amount,
         currency: currency,
         paymentRepository: paymentRepository,
+        rewardsRepository: rewardsRepository,
       ),
     );
   }
@@ -46,12 +61,15 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
   double? _walletBalance;
   bool _isLoadingBalance = true;
   bool _isToppingUp = false;
+  int? _rewardBalance;
+  bool _redeemRewards = false;
   String? _error;
 
   @override
   void initState() {
     super.initState();
     unawaited(_loadBalance());
+    unawaited(_loadRewardBalance());
   }
 
   Future<void> _loadBalance() async {
@@ -68,6 +86,17 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
         _walletBalance = null;
         _isLoadingBalance = false;
       });
+    }
+  }
+
+  Future<void> _loadRewardBalance() async {
+    try {
+      final balance = await widget.rewardsRepository.ensureRewardAccount();
+      if (!mounted) return;
+      setState(() => _rewardBalance = balance);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _rewardBalance = null);
     }
   }
 
@@ -90,10 +119,21 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
     }
   }
 
+  int get _maxRedeemablePoints {
+    final balance = _rewardBalance ?? 0;
+    final capByFare = (widget.amount * 0.20 * 100).floor();
+    return balance < capByFare ? balance : capByFare;
+  }
+
+  double get _redemptionAmount =>
+      _redeemRewards ? (_maxRedeemablePoints / 100) : 0;
+
+  double get _amountDue => widget.amount - _redemptionAmount;
+
   bool get _walletInsufficient =>
       _method == PaymentMethod.demoWallet &&
       _walletBalance != null &&
-      _walletBalance! < widget.amount;
+      _walletBalance! < _amountDue;
 
   @override
   Widget build(BuildContext context) {
@@ -124,9 +164,15 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
             Text('Checkout', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: AppSpacing.xs),
             Text(
-              'Amount due: ${widget.currency} ${widget.amount.toStringAsFixed(2)}',
+              'Amount due: ${widget.currency} ${_amountDue.toStringAsFixed(2)}',
               style: Theme.of(context).textTheme.titleLarge,
             ),
+            if (_redeemRewards && _maxRedeemablePoints > 0)
+              Text(
+                '${widget.currency} ${widget.amount.toStringAsFixed(2)} '
+                '- ${widget.currency} ${_redemptionAmount.toStringAsFixed(2)} reward discount',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
             const Text(
               'Coursework estimate. Not a real charge.',
               style: TextStyle(fontSize: 12),
@@ -175,6 +221,18 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
                   style: TextStyle(color: Theme.of(context).colorScheme.error),
                 ),
             ],
+            if (_maxRedeemablePoints > 0)
+              CheckboxListTile(
+                value: _redeemRewards,
+                onChanged: (value) =>
+                    setState(() => _redeemRewards = value ?? false),
+                controlAffinity: ListTileControlAffinity.leading,
+                title: Text(
+                  'Redeem $_maxRedeemablePoints reward points for '
+                  '${widget.currency} ${(_maxRedeemablePoints / 100).toStringAsFixed(2)} off',
+                ),
+                subtitle: Text('Balance: $_rewardBalance points'),
+              ),
             if (_error != null) ...[
               const SizedBox(height: AppSpacing.xs),
               Text(
@@ -186,7 +244,13 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
             ElevatedButton(
               onPressed: _walletInsufficient
                   ? null
-                  : () => Navigator.of(context).pop(_method),
+                  : () => Navigator.of(context).pop(
+                      CheckoutSelection(
+                        method: _method,
+                        rewardPointsToRedeem:
+                            _redeemRewards ? _maxRedeemablePoints : 0,
+                      ),
+                    ),
               child: const Text('Confirm payment method'),
             ),
           ],

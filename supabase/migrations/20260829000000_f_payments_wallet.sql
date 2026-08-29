@@ -51,6 +51,7 @@ CREATE TABLE IF NOT EXISTS payments (
   idempotency_key TEXT NOT NULL UNIQUE,
   quoted_amount NUMERIC(10, 2) NOT NULL CHECK (quoted_amount >= 0),
   discount_amount NUMERIC(10, 2) NOT NULL DEFAULT 0 CHECK (discount_amount >= 0),
+  reward_points_redeemed INTEGER NOT NULL DEFAULT 0 CHECK (reward_points_redeemed >= 0),
   cancellation_fee NUMERIC(10, 2) NOT NULL DEFAULT 0 CHECK (cancellation_fee >= 0),
   refunded_amount NUMERIC(10, 2) NOT NULL DEFAULT 0 CHECK (refunded_amount >= 0),
   driver_compensation_amount NUMERIC(10, 2) NOT NULL DEFAULT 0 CHECK (driver_compensation_amount >= 0),
@@ -103,10 +104,13 @@ BEGIN
     RAISE EXCEPTION 'fare_quote_not_found';
   END IF;
 
-  IF v_quote.service_type = 'shared_economy' AND v_ride.group_id IS NOT NULL THEN
-    RETURN COALESCE(v_quote.shared_amount, v_quote.solo_amount);
+  IF v_quote.service_type = 'shared_economy' THEN
+    IF v_ride.group_id IS NOT NULL THEN
+      RETURN COALESCE(v_quote.shared_amount, v_quote.solo_amount);
+    END IF;
+    RETURN v_quote.solo_amount;
   END IF;
-  RETURN v_quote.solo_amount;
+  RETURN ROUND((v_quote.base_amount * v_quote.vehicle_multiplier)::numeric, 2);
 END;
 $$;
 
@@ -165,7 +169,12 @@ BEGIN
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION create_cash_payment(p_ride_id UUID, p_idempotency_key TEXT)
+CREATE OR REPLACE FUNCTION create_cash_payment(
+  p_ride_id UUID,
+  p_idempotency_key TEXT,
+  p_discount_amount NUMERIC DEFAULT 0,
+  p_reward_points_redeemed INTEGER DEFAULT 0
+)
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -205,8 +214,14 @@ BEGIN
 
   v_amount := resolve_current_fare_amount(p_ride_id);
 
-  INSERT INTO payments (ride_id, group_id, payer_id, method, status, idempotency_key, quoted_amount)
-  VALUES (p_ride_id, v_ride.group_id, auth.uid(), 'cash', 'pending', p_idempotency_key, v_amount)
+  INSERT INTO payments (
+    ride_id, group_id, payer_id, method, status, idempotency_key,
+    quoted_amount, discount_amount, reward_points_redeemed
+  )
+  VALUES (
+    p_ride_id, v_ride.group_id, auth.uid(), 'cash', 'pending', p_idempotency_key,
+    v_amount, p_discount_amount, p_reward_points_redeemed
+  )
   RETURNING * INTO v_payment;
 
   RETURN jsonb_build_object(
@@ -265,7 +280,12 @@ BEGIN
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION create_wallet_payment(p_ride_id UUID, p_idempotency_key TEXT)
+CREATE OR REPLACE FUNCTION create_wallet_payment(
+  p_ride_id UUID,
+  p_idempotency_key TEXT,
+  p_discount_amount NUMERIC DEFAULT 0,
+  p_reward_points_redeemed INTEGER DEFAULT 0
+)
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -305,8 +325,14 @@ BEGIN
 
   v_amount := resolve_current_fare_amount(p_ride_id);
 
-  INSERT INTO payments (ride_id, group_id, payer_id, method, status, idempotency_key, quoted_amount)
-  VALUES (p_ride_id, v_ride.group_id, auth.uid(), 'demo_wallet', 'pending', p_idempotency_key, v_amount)
+  INSERT INTO payments (
+    ride_id, group_id, payer_id, method, status, idempotency_key,
+    quoted_amount, discount_amount, reward_points_redeemed
+  )
+  VALUES (
+    p_ride_id, v_ride.group_id, auth.uid(), 'demo_wallet', 'pending', p_idempotency_key,
+    v_amount, p_discount_amount, p_reward_points_redeemed
+  )
   RETURNING * INTO v_payment;
 
   RETURN jsonb_build_object(
@@ -447,7 +473,8 @@ CREATE OR REPLACE FUNCTION create_ride_with_quote_and_payment(
   p_client_request_id TEXT,
   p_pickup_note TEXT DEFAULT NULL,
   p_transit_stop_id TEXT DEFAULT NULL,
-  p_transit_stop_name TEXT DEFAULT NULL
+  p_transit_stop_name TEXT DEFAULT NULL,
+  p_reward_points_to_redeem INTEGER DEFAULT 0
 )
 RETURNS JSONB
 LANGUAGE plpgsql
@@ -465,6 +492,9 @@ DECLARE
   v_multiplier NUMERIC;
   v_shared_amount NUMERIC;
   v_solo_fare NUMERIC;
+  v_charge_amount NUMERIC;
+  v_redemption_amount NUMERIC;
+  v_reward_account reward_accounts%ROWTYPE;
   v_payment_result JSONB;
 BEGIN
   IF auth.uid() IS NULL THEN
@@ -508,6 +538,24 @@ BEGIN
     ELSE ROUND((v_economy * v_multiplier)::numeric, 2)
   END;
   v_status := CASE WHEN p_service_type = 'shared_economy' THEN 'waiting_match' ELSE 'requested' END;
+  v_charge_amount := CASE WHEN p_service_type = 'shared_economy'
+    THEN ROUND(v_economy::numeric, 2)
+    ELSE ROUND((v_economy * v_multiplier)::numeric, 2)
+  END;
+
+  IF p_reward_points_to_redeem IS NULL OR p_reward_points_to_redeem < 0 THEN
+    RETURN jsonb_build_object('success', FALSE, 'reason', 'invalid_reward_points');
+  END IF;
+  v_redemption_amount := ROUND(p_reward_points_to_redeem / 100.0, 2);
+  IF p_reward_points_to_redeem > 0 THEN
+    IF v_redemption_amount > ROUND(v_charge_amount * 0.20, 2) THEN
+      RETURN jsonb_build_object('success', FALSE, 'reason', 'reward_redemption_exceeds_limit');
+    END IF;
+    SELECT * INTO v_reward_account FROM reward_accounts WHERE user_id = auth.uid() FOR UPDATE;
+    IF v_reward_account.user_id IS NULL OR v_reward_account.points_balance < p_reward_points_to_redeem THEN
+      RETURN jsonb_build_object('success', FALSE, 'reason', 'insufficient_reward_points');
+    END IF;
+  END IF;
 
   INSERT INTO rides (
     rider_id, pickup, destination,
@@ -534,13 +582,24 @@ BEGIN
   );
 
   IF p_payment_method = 'cash' THEN
-    v_payment_result := create_cash_payment(v_ride_id, p_client_request_id);
+    v_payment_result := create_cash_payment(
+      v_ride_id, p_client_request_id, v_redemption_amount, p_reward_points_to_redeem
+    );
   ELSE
-    v_payment_result := create_wallet_payment(v_ride_id, p_client_request_id);
+    v_payment_result := create_wallet_payment(
+      v_ride_id, p_client_request_id, v_redemption_amount, p_reward_points_to_redeem
+    );
   END IF;
 
   IF (v_payment_result->>'success')::boolean IS NOT TRUE THEN
     RAISE EXCEPTION 'payment_setup_failed: %', v_payment_result->>'reason';
+  END IF;
+
+  IF p_reward_points_to_redeem > 0 THEN
+    PERFORM redeem_reward_points(
+      auth.uid(), p_reward_points_to_redeem, v_ride_id,
+      (v_payment_result->>'payment_id')::uuid
+    );
   END IF;
 
   RETURN jsonb_build_object(
@@ -621,6 +680,12 @@ BEGIN
     RETURN jsonb_build_object('success', TRUE, 'payment_settled', FALSE);
   END IF;
 
+  IF v_payment.reward_points_redeemed > 0 THEN
+    PERFORM restore_reward_points(
+      v_payment.payer_id, v_payment.reward_points_redeemed, p_ride_id, v_payment.id
+    );
+  END IF;
+
   IF v_payment.method = 'cash' THEN
     UPDATE payments SET
       status = 'cancelled',
@@ -678,27 +743,27 @@ $$;
 REVOKE ALL ON FUNCTION resolve_current_fare_amount(UUID) FROM PUBLIC;
 REVOKE ALL ON FUNCTION ensure_wallet_account() FROM PUBLIC;
 REVOKE ALL ON FUNCTION demo_wallet_top_up(NUMERIC) FROM PUBLIC;
-REVOKE ALL ON FUNCTION create_cash_payment(UUID, TEXT) FROM PUBLIC;
+REVOKE ALL ON FUNCTION create_cash_payment(UUID, TEXT, NUMERIC, INTEGER) FROM PUBLIC;
 REVOKE ALL ON FUNCTION complete_cash_payment(UUID) FROM PUBLIC;
-REVOKE ALL ON FUNCTION create_wallet_payment(UUID, TEXT) FROM PUBLIC;
+REVOKE ALL ON FUNCTION create_wallet_payment(UUID, TEXT, NUMERIC, INTEGER) FROM PUBLIC;
 REVOKE ALL ON FUNCTION authorise_wallet_payment(UUID) FROM PUBLIC;
 REVOKE ALL ON FUNCTION capture_wallet_payment(UUID) FROM PUBLIC;
 REVOKE ALL ON FUNCTION create_ride_with_quote_and_payment(
   TEXT, TEXT, DOUBLE PRECISION, DOUBLE PRECISION, DOUBLE PRECISION, DOUBLE PRECISION,
-  TEXT, INTEGER, TIMESTAMPTZ, DOUBLE PRECISION, DOUBLE PRECISION, TEXT, TEXT, TEXT, TEXT, TEXT
+  TEXT, INTEGER, TIMESTAMPTZ, DOUBLE PRECISION, DOUBLE PRECISION, TEXT, TEXT, TEXT, TEXT, TEXT, INTEGER
 ) FROM PUBLIC;
 REVOKE ALL ON FUNCTION cancel_ride_and_settle_payment(UUID, TEXT, TEXT, TEXT, NUMERIC, NUMERIC) FROM PUBLIC;
 
 GRANT EXECUTE ON FUNCTION ensure_wallet_account() TO authenticated;
 GRANT EXECUTE ON FUNCTION demo_wallet_top_up(NUMERIC) TO authenticated;
-GRANT EXECUTE ON FUNCTION create_cash_payment(UUID, TEXT) TO authenticated;
+GRANT EXECUTE ON FUNCTION create_cash_payment(UUID, TEXT, NUMERIC, INTEGER) TO authenticated;
 GRANT EXECUTE ON FUNCTION complete_cash_payment(UUID) TO authenticated;
-GRANT EXECUTE ON FUNCTION create_wallet_payment(UUID, TEXT) TO authenticated;
+GRANT EXECUTE ON FUNCTION create_wallet_payment(UUID, TEXT, NUMERIC, INTEGER) TO authenticated;
 GRANT EXECUTE ON FUNCTION authorise_wallet_payment(UUID) TO authenticated;
 GRANT EXECUTE ON FUNCTION capture_wallet_payment(UUID) TO authenticated;
 GRANT EXECUTE ON FUNCTION create_ride_with_quote_and_payment(
   TEXT, TEXT, DOUBLE PRECISION, DOUBLE PRECISION, DOUBLE PRECISION, DOUBLE PRECISION,
-  TEXT, INTEGER, TIMESTAMPTZ, DOUBLE PRECISION, DOUBLE PRECISION, TEXT, TEXT, TEXT, TEXT, TEXT
+  TEXT, INTEGER, TIMESTAMPTZ, DOUBLE PRECISION, DOUBLE PRECISION, TEXT, TEXT, TEXT, TEXT, TEXT, INTEGER
 ) TO authenticated;
 GRANT EXECUTE ON FUNCTION cancel_ride_and_settle_payment(UUID, TEXT, TEXT, TEXT, NUMERIC, NUMERIC) TO authenticated;
 

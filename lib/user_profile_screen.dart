@@ -5,6 +5,7 @@ import 'app_state.dart';
 import 'app_theme.dart';
 import 'rewards_screen.dart';
 import 'supabase_config.dart';
+import 'trip_history_screen.dart';
 
 class UserProfileScreen extends StatefulWidget {
   const UserProfileScreen({super.key});
@@ -110,6 +111,18 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                       );
                     },
                     child: const Text('View Rewards'),
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  OutlinedButton(
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const TripHistoryScreen(),
+                        ),
+                      );
+                    },
+                    child: const Text('Trip History'),
                   ),
                 ],
               ),

@@ -57,9 +57,20 @@ void main() {
       sql,
       isNot(contains('GRANT EXECUTE ON FUNCTION resolve_current_fare_amount')),
     );
+  });
+
+  test('resolve_current_fare_amount applies the vehicle multiplier for economy_4/six_seater', () {
+    final fnStart = sql.indexOf(
+      'CREATE OR REPLACE FUNCTION resolve_current_fare_amount',
+    );
+    final fnEnd = sql.indexOf('CREATE OR REPLACE FUNCTION ensure_wallet_account', fnStart);
+    final fnSql = sql.substring(fnStart, fnEnd);
+    expect(fnSql, contains("IF v_quote.service_type = 'shared_economy' THEN"));
+    expect(fnSql, contains('v_ride.group_id IS NOT NULL'));
+    expect(fnSql, contains('RETURN v_quote.solo_amount;'));
     expect(
-      sql,
-      contains("v_quote.service_type = 'shared_economy' AND v_ride.group_id IS NOT NULL"),
+      fnSql,
+      contains('RETURN ROUND((v_quote.base_amount * v_quote.vehicle_multiplier)::numeric, 2);'),
     );
   });
 
@@ -90,8 +101,10 @@ void main() {
     final fnSql = sql.substring(fnStart, fnEnd);
     expect(fnSql, contains('INSERT INTO rides'));
     expect(fnSql, contains('INSERT INTO fare_quotes'));
-    expect(fnSql, contains('create_cash_payment(v_ride_id, p_client_request_id)'));
-    expect(fnSql, contains('create_wallet_payment(v_ride_id, p_client_request_id)'));
+    expect(
+      fnSql,
+      contains('v_ride_id, p_client_request_id, v_redemption_amount, p_reward_points_to_redeem'),
+    );
     expect(fnSql, contains("idempotent_replay"));
     final idempotencyCheckIndex = fnSql.indexOf(
       'SELECT * INTO v_existing_payment FROM payments WHERE idempotency_key',
@@ -128,5 +141,52 @@ void main() {
     expect(fnSql, contains("ride_not_cancellable"));
     expect(fnSql, contains("v_payment.method = 'cash'"));
     expect(fnSql, contains('GREATEST(v_held - p_fee, 0)'));
+  });
+
+  test('reward redemption is validated and capped at 20% of fare before anything is created', () {
+    final fnStart = sql.indexOf(
+      'CREATE OR REPLACE FUNCTION create_ride_with_quote_and_payment',
+    );
+    final fnEnd = sql.indexOf(
+      'CREATE OR REPLACE FUNCTION cancel_ride_and_settle_payment',
+      fnStart,
+    );
+    final fnSql = sql.substring(fnStart, fnEnd);
+    expect(fnSql, contains('p_reward_points_to_redeem INTEGER DEFAULT 0'));
+    expect(fnSql, contains('reward_redemption_exceeds_limit'));
+    expect(fnSql, contains('v_redemption_amount > ROUND(v_charge_amount * 0.20, 2)'));
+    expect(fnSql, contains('insufficient_reward_points'));
+    final capCheckIndex = fnSql.indexOf('reward_redemption_exceeds_limit');
+    final rideInsertIndex = fnSql.indexOf('INSERT INTO rides');
+    expect(capCheckIndex, greaterThan(-1));
+    expect(rideInsertIndex, greaterThan(capCheckIndex));
+  });
+
+  test('redeemed points are only debited after payment setup succeeds, in the same transaction', () {
+    final fnStart = sql.indexOf(
+      'CREATE OR REPLACE FUNCTION create_ride_with_quote_and_payment',
+    );
+    final fnEnd = sql.indexOf(
+      'CREATE OR REPLACE FUNCTION cancel_ride_and_settle_payment',
+      fnStart,
+    );
+    final fnSql = sql.substring(fnStart, fnEnd);
+    final paymentFailIndex = fnSql.indexOf('payment_setup_failed');
+    final redeemCallIndex = fnSql.indexOf('PERFORM redeem_reward_points');
+    expect(paymentFailIndex, greaterThan(-1));
+    expect(redeemCallIndex, greaterThan(paymentFailIndex));
+  });
+
+  test('cancellation restores redeemed reward points before settling the payment', () {
+    final fnStart = sql.indexOf(
+      'CREATE OR REPLACE FUNCTION cancel_ride_and_settle_payment',
+    );
+    final fnEnd = sql.indexOf('REVOKE ALL ON FUNCTION', fnStart);
+    final fnSql = sql.substring(fnStart, fnEnd);
+    final restoreIndex = fnSql.indexOf('PERFORM restore_reward_points');
+    final cashBranchIndex = fnSql.indexOf("v_payment.method = 'cash'");
+    expect(fnSql, contains('v_payment.reward_points_redeemed > 0'));
+    expect(restoreIndex, greaterThan(-1));
+    expect(restoreIndex, lessThan(cashBranchIndex));
   });
 }
