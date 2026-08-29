@@ -13,11 +13,13 @@ import 'chat_with_driver_screen.dart';
 import 'checkout_sheet.dart';
 import 'driver_assigned_panel.dart';
 import 'fare_estimator.dart';
+import 'landmark_photo_sheet.dart';
 import 'location_search_service.dart';
 import 'osrm_routing_service.dart';
 import 'payment_method.dart';
 import 'payment_repository.dart';
 import 'pickup_confirmation_sheet.dart';
+import 'pickup_landmark_service.dart';
 import 'ride.dart';
 import 'ride_booking_repository.dart';
 import 'shared_route_markers.dart';
@@ -83,8 +85,10 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
   late final TransitStopRepository _transitRepository;
   late final RideBookingRepository _rideBookingRepository;
   late final PaymentRepository _paymentRepository;
+  late final PickupLandmarkService _landmarkService;
   String _presenceCategory = 'economy_4';
   PaymentMethod? _selectedPaymentMethod;
+  PickedLandmarkPhoto? _pendingLandmarkPhoto;
 
   @override
   void initState() {
@@ -96,6 +100,7 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
     _tripRepository = SupabaseTripPlannerRepository(supabase);
     _rideBookingRepository = RideBookingRepository(supabase);
     _paymentRepository = PaymentRepository(supabase);
+    _landmarkService = PickupLandmarkService();
     _carpoolService = SupabaseCarpoolService(
       client: supabase,
       matcher: CarpoolMatcher(routing: OsrmCarpoolRouting(_routing)),
@@ -156,6 +161,7 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
         'Sign in and complete the trip and checkout before requesting a ride.',
       );
     }
+    final landmarkPhoto = _pendingLandmarkPhoto;
     try {
       final result = await _rideBookingRepository
           .createRideWithQuoteAndPayment(
@@ -172,6 +178,9 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
             paymentMethod: paymentMethod,
             clientRequestId: _generateClientRequestId(),
           );
+      if (landmarkPhoto != null) {
+        await _uploadLandmarkPhoto(userId, result.rideId, landmarkPhoto);
+      }
       _state.setActiveRideId(result.rideId);
       _watchRide(result.rideId);
       if (vehicle.isShared) unawaited(_trySharedMatch(result.rideId));
@@ -179,6 +188,44 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
       throw TripPlannerRepositoryException('Booking failed: $error');
     } finally {
       _selectedPaymentMethod = null;
+      _pendingLandmarkPhoto = null;
+    }
+  }
+
+  Future<void> _uploadLandmarkPhoto(
+    String riderId,
+    String rideId,
+    PickedLandmarkPhoto photo,
+  ) async {
+    if (!mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.showSnackBar(
+      const SnackBar(
+        content: Text('Uploading pickup photo…'),
+        duration: Duration(seconds: 30),
+      ),
+    );
+    try {
+      await _landmarkService.upload(
+        riderId: riderId,
+        rideId: rideId,
+        photo: photo,
+      );
+      if (!mounted) return;
+      messenger.hideCurrentSnackBar();
+    } catch (error) {
+      if (!mounted) return;
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(
+        SnackBar(
+          content: const Text('Pickup photo upload failed.'),
+          action: SnackBarAction(
+            label: 'Retry',
+            onPressed: () =>
+                unawaited(_uploadLandmarkPhoto(riderId, rideId, photo)),
+          ),
+        ),
+      );
     }
   }
 
@@ -704,6 +751,12 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
       return;
     }
     _state.setPickupNote(confirmation.pickupNote);
+
+    if (!mounted) return;
+    _pendingLandmarkPhoto = await LandmarkPhotoSheet.show(
+      context,
+      service: _landmarkService,
+    );
 
     final quote = FareEstimator.quote(
       serviceType: FareServiceType.fromDbValue(_databaseServiceType(vehicle)),
