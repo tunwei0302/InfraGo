@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import 'analytics_screen.dart';
-import 'chat_with_driver_screen.dart';
 import 'trip_planner_map_screen.dart';
 import 'user_profile_screen.dart';
 
@@ -17,7 +16,6 @@ class _CommuterHomeScreenState extends State<CommuterHomeScreen> {
 
   static const List<Widget> _pages = [
     TripPlannerMapScreen(),
-    ChatWithDriverScreen(),
     AnalyticsScreen(),
     UserProfileScreen(),
   ];
@@ -35,7 +33,6 @@ class _CommuterHomeScreenState extends State<CommuterHomeScreen> {
         },
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.map), label: 'Map'),
-          BottomNavigationBarItem(icon: Icon(Icons.chat), label: 'Chat'),
           BottomNavigationBarItem(
             icon: Icon(Icons.analytics),
             label: 'Analytics',

@@ -7,10 +7,13 @@ class AvailableOrdersScreen extends StatelessWidget {
   const AvailableOrdersScreen({super.key});
 
   Future<void> _acceptRide(Ride ride) async {
-    await supabase.from('rides').update({
-      'driver_id': supabase.auth.currentUser!.id,
-      'status': 'matched',
-    }).eq('id', ride.id);
+    await supabase
+        .from('rides')
+        .update({
+          'driver_id': supabase.auth.currentUser!.id,
+          'status': 'driver_assigned',
+        })
+        .eq('id', ride.id);
   }
 
   @override
