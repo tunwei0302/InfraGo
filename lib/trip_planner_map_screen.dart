@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -12,13 +13,13 @@ import 'chat_with_driver_screen.dart';
 import 'checkout_sheet.dart';
 import 'driver_assigned_panel.dart';
 import 'fare_estimator.dart';
-import 'fare_quote_repository.dart';
 import 'location_search_service.dart';
 import 'osrm_routing_service.dart';
 import 'payment_method.dart';
 import 'payment_repository.dart';
 import 'pickup_confirmation_sheet.dart';
 import 'ride.dart';
+import 'ride_booking_repository.dart';
 import 'shared_route_markers.dart';
 import 'supabase_carpool_service.dart';
 import 'supabase_config.dart';
@@ -80,11 +81,10 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
   late final TripPlannerRepository _tripRepository;
   late final SupabaseCarpoolService _carpoolService;
   late final TransitStopRepository _transitRepository;
-  late final FareQuoteRepository _fareQuoteRepository;
+  late final RideBookingRepository _rideBookingRepository;
   late final PaymentRepository _paymentRepository;
   String _presenceCategory = 'economy_4';
   PaymentMethod? _selectedPaymentMethod;
-  FareQuote? _pendingFareQuote;
 
   @override
   void initState() {
@@ -94,7 +94,7 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
     _state.onRequestSubmitted(_handleRequestSubmitted);
     _state.onCancelRequested(_handleCancelled);
     _tripRepository = SupabaseTripPlannerRepository(supabase);
-    _fareQuoteRepository = FareQuoteRepository(supabase);
+    _rideBookingRepository = RideBookingRepository(supabase);
     _paymentRepository = PaymentRepository(supabase);
     _carpoolService = SupabaseCarpoolService(
       client: supabase,
@@ -136,6 +136,9 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
     }
   }
 
+  String _generateClientRequestId() =>
+      '${DateTime.now().microsecondsSinceEpoch}-${Random().nextInt(1 << 32)}';
+
   Future<void> _handleRequestSubmitted() async {
     final pickup = _state.pickup;
     final destination = _state.destination;
@@ -143,47 +146,39 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
     final route = _state.route;
     final userId = supabase.auth.currentUser?.id;
     final paymentMethod = _selectedPaymentMethod;
-    final quote = _pendingFareQuote;
     if (pickup == null ||
         destination == null ||
         vehicle == null ||
         route == null ||
         userId == null ||
-        paymentMethod == null ||
-        quote == null) {
+        paymentMethod == null) {
       throw const TripPlannerRepositoryException(
         'Sign in and complete the trip and checkout before requesting a ride.',
       );
     }
     try {
-      final rideId = await _tripRepository.createRide(
-        RideDraft(
-          riderId: userId,
-          pickupLabel: pickup.bookingLabel,
-          destinationLabel: destination.bookingLabel,
-          pickup: pickup.point,
-          destination: destination.point,
-          serviceType: _databaseServiceType(vehicle),
-          passengerCount: _state.passengerCount,
-          departureTime: _state.effectiveDeparture,
-          routeDistanceMeters: route.distanceMeters,
-          routeDurationSeconds: route.durationSeconds,
-          pickupNote: _state.pickupNote,
-          estimatedSoloFare: vehicle.isShared ? null : quote.amount,
-          estimatedSharedFare: vehicle.isShared ? quote.amount : null,
-        ),
-      );
-      await _fareQuoteRepository.saveQuote(rideId: rideId, quote: quote);
-      await _paymentRepository.createPayment(
-        rideId: rideId,
-        method: paymentMethod,
-      );
-      _state.setActiveRideId(rideId);
-      _watchRide(rideId);
-      if (vehicle.isShared) unawaited(_trySharedMatch(rideId));
+      final result = await _rideBookingRepository
+          .createRideWithQuoteAndPayment(
+            pickupLabel: pickup.bookingLabel,
+            destinationLabel: destination.bookingLabel,
+            pickup: pickup.point,
+            destination: destination.point,
+            serviceType: _databaseServiceType(vehicle),
+            passengerCount: _state.passengerCount,
+            departureTime: _state.effectiveDeparture,
+            routeDistanceMeters: route.distanceMeters,
+            routeDurationSeconds: route.durationSeconds,
+            pickupNote: _state.pickupNote,
+            paymentMethod: paymentMethod,
+            clientRequestId: _generateClientRequestId(),
+          );
+      _state.setActiveRideId(result.rideId);
+      _watchRide(result.rideId);
+      if (vehicle.isShared) unawaited(_trySharedMatch(result.rideId));
+    } on RideBookingException catch (error) {
+      throw TripPlannerRepositoryException('Booking failed: $error');
     } finally {
       _selectedPaymentMethod = null;
-      _pendingFareQuote = null;
     }
   }
 
@@ -728,7 +723,6 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
       return;
     }
     _selectedPaymentMethod = method;
-    _pendingFareQuote = quote;
 
     final ok = await _state.submitRideRequest();
     if (ok) {

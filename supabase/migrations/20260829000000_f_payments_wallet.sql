@@ -423,6 +423,143 @@ BEGIN
 END;
 $$;
 
+-- Creates the ride, its fare_quotes row and its payment row in a single
+-- transaction: if any step fails, none of it is persisted. Recomputes the
+-- mvp_v1 fare from route distance/duration itself rather than trusting a
+-- client-supplied amount, so the Dart FareEstimator is only ever a display
+-- estimate; this function is the one authoritative price. p_client_request_id
+-- is a client-generated idempotency key covering the whole operation: a
+-- retry with the same key returns the original ride/payment instead of
+-- creating a second ride.
+CREATE OR REPLACE FUNCTION create_ride_with_quote_and_payment(
+  p_pickup_label TEXT,
+  p_destination_label TEXT,
+  p_pickup_lat DOUBLE PRECISION,
+  p_pickup_lng DOUBLE PRECISION,
+  p_destination_lat DOUBLE PRECISION,
+  p_destination_lng DOUBLE PRECISION,
+  p_service_type TEXT,
+  p_passenger_count INTEGER,
+  p_departure_time TIMESTAMPTZ,
+  p_route_distance_meters DOUBLE PRECISION,
+  p_route_duration_seconds DOUBLE PRECISION,
+  p_payment_method TEXT,
+  p_client_request_id TEXT,
+  p_pickup_note TEXT DEFAULT NULL,
+  p_transit_stop_id TEXT DEFAULT NULL,
+  p_transit_stop_name TEXT DEFAULT NULL
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_existing_payment payments%ROWTYPE;
+  v_ride_id UUID;
+  v_status TEXT;
+  v_km DOUBLE PRECISION;
+  v_minutes DOUBLE PRECISION;
+  v_raw NUMERIC;
+  v_economy NUMERIC;
+  v_multiplier NUMERIC;
+  v_shared_amount NUMERIC;
+  v_solo_fare NUMERIC;
+  v_payment_result JSONB;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RETURN jsonb_build_object('success', FALSE, 'reason', 'authentication_required');
+  END IF;
+
+  SELECT * INTO v_existing_payment FROM payments WHERE idempotency_key = p_client_request_id;
+  IF v_existing_payment.id IS NOT NULL THEN
+    RETURN jsonb_build_object(
+      'success', TRUE, 'ride_id', v_existing_payment.ride_id,
+      'payment_id', v_existing_payment.id, 'status', v_existing_payment.status,
+      'idempotent_replay', TRUE
+    );
+  END IF;
+
+  IF p_service_type NOT IN ('economy_4', 'six_seater', 'shared_economy') THEN
+    RETURN jsonb_build_object('success', FALSE, 'reason', 'invalid_service_type');
+  END IF;
+  IF p_payment_method NOT IN ('cash', 'demo_wallet') THEN
+    RETURN jsonb_build_object('success', FALSE, 'reason', 'invalid_payment_method');
+  END IF;
+  IF p_route_distance_meters < 0 OR p_route_duration_seconds < 0 THEN
+    RETURN jsonb_build_object('success', FALSE, 'reason', 'invalid_route');
+  END IF;
+
+  v_km := p_route_distance_meters / 1000.0;
+  v_minutes := p_route_duration_seconds / 60.0;
+  v_raw := 3.0 + 1.10 * v_km + 0.20 * v_minutes;
+  v_economy := GREATEST(5.0, v_raw);
+  v_multiplier := CASE p_service_type
+    WHEN 'six_seater' THEN 1.35
+    WHEN 'shared_economy' THEN 0.75
+    ELSE 1.0
+  END;
+  v_shared_amount := CASE WHEN p_service_type = 'shared_economy'
+    THEN ROUND((v_economy * 0.75)::numeric, 2)
+    ELSE NULL
+  END;
+  v_solo_fare := CASE WHEN p_service_type = 'shared_economy'
+    THEN NULL
+    ELSE ROUND((v_economy * v_multiplier)::numeric, 2)
+  END;
+  v_status := CASE WHEN p_service_type = 'shared_economy' THEN 'waiting_match' ELSE 'requested' END;
+
+  INSERT INTO rides (
+    rider_id, pickup, destination,
+    pickup_latitude, pickup_longitude, destination_latitude, destination_longitude,
+    status, service_type, passenger_count, departure_time,
+    route_distance_meters, route_duration_seconds,
+    pickup_note, transit_stop_id, transit_stop_name,
+    estimated_solo_fare, estimated_shared_fare
+  ) VALUES (
+    auth.uid(), p_pickup_label, p_destination_label,
+    p_pickup_lat, p_pickup_lng, p_destination_lat, p_destination_lng,
+    v_status, p_service_type, p_passenger_count, p_departure_time,
+    p_route_distance_meters, p_route_duration_seconds,
+    p_pickup_note, p_transit_stop_id, p_transit_stop_name,
+    v_solo_fare, v_shared_amount
+  ) RETURNING id INTO v_ride_id;
+
+  INSERT INTO fare_quotes (
+    ride_id, pricing_version, service_type, distance_meters, duration_seconds,
+    base_amount, vehicle_multiplier, solo_amount, shared_amount, currency
+  ) VALUES (
+    v_ride_id, 'mvp_v1', p_service_type, p_route_distance_meters, p_route_duration_seconds,
+    ROUND(v_economy::numeric, 2), v_multiplier, ROUND(v_economy::numeric, 2), v_shared_amount, 'MYR'
+  );
+
+  IF p_payment_method = 'cash' THEN
+    v_payment_result := create_cash_payment(v_ride_id, p_client_request_id);
+  ELSE
+    v_payment_result := create_wallet_payment(v_ride_id, p_client_request_id);
+  END IF;
+
+  IF (v_payment_result->>'success')::boolean IS NOT TRUE THEN
+    RAISE EXCEPTION 'payment_setup_failed: %', v_payment_result->>'reason';
+  END IF;
+
+  RETURN jsonb_build_object(
+    'success', TRUE, 'ride_id', v_ride_id,
+    'payment_id', v_payment_result->>'payment_id', 'status', v_payment_result->>'status'
+  );
+EXCEPTION WHEN unique_violation THEN
+  SELECT * INTO v_existing_payment FROM payments WHERE idempotency_key = p_client_request_id;
+  IF v_existing_payment.id IS NULL THEN
+    RETURN jsonb_build_object('success', FALSE, 'reason', 'duplicate_request');
+  END IF;
+  RETURN jsonb_build_object(
+    'success', TRUE, 'ride_id', v_existing_payment.ride_id,
+    'payment_id', v_existing_payment.id, 'status', v_existing_payment.status,
+    'idempotent_replay', TRUE
+  );
+END;
+$$;
+
 -- Cancels a ride and settles its current payment in one transaction so the
 -- cancellation fee, refund and rides.cancellation_* fields are all written
 -- exactly once. Cash never moves money: the fee is only recorded as the
@@ -546,6 +683,10 @@ REVOKE ALL ON FUNCTION complete_cash_payment(UUID) FROM PUBLIC;
 REVOKE ALL ON FUNCTION create_wallet_payment(UUID, TEXT) FROM PUBLIC;
 REVOKE ALL ON FUNCTION authorise_wallet_payment(UUID) FROM PUBLIC;
 REVOKE ALL ON FUNCTION capture_wallet_payment(UUID) FROM PUBLIC;
+REVOKE ALL ON FUNCTION create_ride_with_quote_and_payment(
+  TEXT, TEXT, DOUBLE PRECISION, DOUBLE PRECISION, DOUBLE PRECISION, DOUBLE PRECISION,
+  TEXT, INTEGER, TIMESTAMPTZ, DOUBLE PRECISION, DOUBLE PRECISION, TEXT, TEXT, TEXT, TEXT, TEXT
+) FROM PUBLIC;
 REVOKE ALL ON FUNCTION cancel_ride_and_settle_payment(UUID, TEXT, TEXT, TEXT, NUMERIC, NUMERIC) FROM PUBLIC;
 
 GRANT EXECUTE ON FUNCTION ensure_wallet_account() TO authenticated;
@@ -555,6 +696,10 @@ GRANT EXECUTE ON FUNCTION complete_cash_payment(UUID) TO authenticated;
 GRANT EXECUTE ON FUNCTION create_wallet_payment(UUID, TEXT) TO authenticated;
 GRANT EXECUTE ON FUNCTION authorise_wallet_payment(UUID) TO authenticated;
 GRANT EXECUTE ON FUNCTION capture_wallet_payment(UUID) TO authenticated;
+GRANT EXECUTE ON FUNCTION create_ride_with_quote_and_payment(
+  TEXT, TEXT, DOUBLE PRECISION, DOUBLE PRECISION, DOUBLE PRECISION, DOUBLE PRECISION,
+  TEXT, INTEGER, TIMESTAMPTZ, DOUBLE PRECISION, DOUBLE PRECISION, TEXT, TEXT, TEXT, TEXT, TEXT
+) TO authenticated;
 GRANT EXECUTE ON FUNCTION cancel_ride_and_settle_payment(UUID, TEXT, TEXT, TEXT, NUMERIC, NUMERIC) TO authenticated;
 
 ALTER TABLE fare_quotes ENABLE ROW LEVEL SECURITY;

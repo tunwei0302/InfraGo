@@ -79,6 +79,43 @@ void main() {
     expect(fnSql, contains('FOR UPDATE'));
   });
 
+  test('create_ride_with_quote_and_payment folds ride, quote and payment into one transaction', () {
+    final fnStart = sql.indexOf(
+      'CREATE OR REPLACE FUNCTION create_ride_with_quote_and_payment',
+    );
+    final fnEnd = sql.indexOf(
+      'CREATE OR REPLACE FUNCTION cancel_ride_and_settle_payment',
+      fnStart,
+    );
+    final fnSql = sql.substring(fnStart, fnEnd);
+    expect(fnSql, contains('INSERT INTO rides'));
+    expect(fnSql, contains('INSERT INTO fare_quotes'));
+    expect(fnSql, contains('create_cash_payment(v_ride_id, p_client_request_id)'));
+    expect(fnSql, contains('create_wallet_payment(v_ride_id, p_client_request_id)'));
+    expect(fnSql, contains("idempotent_replay"));
+    final idempotencyCheckIndex = fnSql.indexOf(
+      'SELECT * INTO v_existing_payment FROM payments WHERE idempotency_key',
+    );
+    final rideInsertIndex = fnSql.indexOf('INSERT INTO rides');
+    expect(idempotencyCheckIndex, greaterThan(-1));
+    expect(rideInsertIndex, greaterThan(idempotencyCheckIndex));
+  });
+
+  test('create_ride_with_quote_and_payment recomputes mvp_v1 fare itself, not from client input', () {
+    final fnStart = sql.indexOf(
+      'CREATE OR REPLACE FUNCTION create_ride_with_quote_and_payment',
+    );
+    final fnEnd = sql.indexOf(
+      'CREATE OR REPLACE FUNCTION cancel_ride_and_settle_payment',
+      fnStart,
+    );
+    final fnSql = sql.substring(fnStart, fnEnd);
+    expect(fnSql, contains('3.0 + 1.10 * v_km + 0.20 * v_minutes'));
+    expect(fnSql, contains('GREATEST(5.0, v_raw)'));
+    expect(fnSql, contains("WHEN 'six_seater' THEN 1.35"));
+    expect(fnSql, contains("WHEN 'shared_economy' THEN 0.75"));
+  });
+
   test('cancel_ride_and_settle_payment writes cancellation fields exactly once', () {
     final fnStart = sql.indexOf(
       'CREATE OR REPLACE FUNCTION cancel_ride_and_settle_payment',

@@ -1,7 +1,5 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import 'payment_method.dart';
-
 class PaymentException implements Exception {
   const PaymentException(this.reason);
 
@@ -29,24 +27,6 @@ class PaymentRepository {
     final map = Map<String, dynamic>.from(result as Map);
     if (map['success'] != true) {
       throw PaymentException(map['reason']?.toString() ?? 'top_up_failed');
-    }
-    return map;
-  }
-
-  Future<Map<String, dynamic>> createPayment({
-    required String rideId,
-    required PaymentMethod method,
-  }) async {
-    final function = method == PaymentMethod.cash
-        ? 'create_cash_payment'
-        : 'create_wallet_payment';
-    final result = await client.rpc(
-      function,
-      params: {'p_ride_id': rideId, 'p_idempotency_key': rideId},
-    );
-    final map = Map<String, dynamic>.from(result as Map);
-    if (map['success'] != true) {
-      throw PaymentException(map['reason']?.toString() ?? 'payment_failed');
     }
     return map;
   }
