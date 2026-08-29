@@ -79,6 +79,7 @@ class ReceiptPayment {
 class ReceiptData {
   const ReceiptData({
     required this.rideId,
+    this.driverId,
     required this.pickupLabel,
     required this.destinationLabel,
     required this.pickupLatitude,
@@ -97,6 +98,7 @@ class ReceiptData {
   });
 
   final String rideId;
+  final String? driverId;
   final String pickupLabel;
   final String destinationLabel;
   final double? pickupLatitude;
@@ -118,6 +120,7 @@ class ReceiptData {
     final payments = (json['payments'] as List?) ?? const [];
     return ReceiptData(
       rideId: json['id'] as String,
+      driverId: json['driver_id'] as String?,
       pickupLabel: json['pickup'] as String,
       destinationLabel: json['destination'] as String,
       pickupLatitude: (json['pickup_latitude'] as num?)?.toDouble(),

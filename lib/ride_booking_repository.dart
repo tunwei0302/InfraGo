@@ -2,6 +2,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'payment_method.dart';
+import 'rpc_caller.dart';
 
 class RideBookingException implements Exception {
   const RideBookingException(this.reason);
@@ -25,9 +26,10 @@ class RideBookingResult {
 }
 
 class RideBookingRepository {
-  const RideBookingRepository(this.client);
+  RideBookingRepository(SupabaseClient client, {RpcCaller? rpcCaller})
+    : _rpc = rpcCaller ?? client.rpc;
 
-  final SupabaseClient client;
+  final RpcCaller _rpc;
 
   Future<RideBookingResult> createRideWithQuoteAndPayment({
     required String pickupLabel,
@@ -48,7 +50,7 @@ class RideBookingRepository {
   }) async {
     Map<String, dynamic> map;
     try {
-      final result = await client.rpc(
+      final result = await _rpc(
         'create_ride_with_quote_and_payment',
         params: {
           'p_pickup_label': pickupLabel,

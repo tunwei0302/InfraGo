@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import 'app_theme.dart';
+import 'driver_rating_screen.dart';
 import 'receipt_repository.dart';
 import 'supabase_config.dart';
 
@@ -27,10 +28,9 @@ String _formatDate(DateTime value) =>
     '${value.hour.toString().padLeft(2, '0')}:${value.minute.toString().padLeft(2, '0')}';
 
 class ReceiptScreen extends StatefulWidget {
-  const ReceiptScreen({super.key, required this.rideId, this.onRateDriver});
+  const ReceiptScreen({super.key, required this.rideId});
 
   final String rideId;
-  final Future<void> Function(String rideId)? onRateDriver;
 
   @override
   State<ReceiptScreen> createState() => _ReceiptScreenState();
@@ -169,11 +169,19 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
         ],
         if (receipt.status == 'completed' &&
             !_isRated &&
-            widget.onRateDriver != null)
+            receipt.driverId != null)
           ElevatedButton(
             onPressed: () async {
-              await widget.onRateDriver!(receipt.rideId);
-              if (mounted) unawaited(_load());
+              final rated = await Navigator.push<bool>(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => DriverRatingScreen(
+                    rideId: receipt.rideId,
+                    driverId: receipt.driverId!,
+                  ),
+                ),
+              );
+              if (rated == true && mounted) unawaited(_load());
             },
             child: const Text('Rate your driver'),
           ),

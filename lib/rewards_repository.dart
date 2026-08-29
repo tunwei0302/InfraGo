@@ -1,5 +1,7 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'rpc_caller.dart';
+
 class RewardsException implements Exception {
   const RewardsException(this.reason);
 
@@ -10,12 +12,13 @@ class RewardsException implements Exception {
 }
 
 class RewardsRepository {
-  const RewardsRepository(this.client);
+  RewardsRepository(SupabaseClient client, {RpcCaller? rpcCaller})
+    : _rpc = rpcCaller ?? client.rpc;
 
-  final SupabaseClient client;
+  final RpcCaller _rpc;
 
   Future<int> ensureRewardAccount() async {
-    final result = await client.rpc('ensure_reward_account');
+    final result = await _rpc('ensure_reward_account');
     final map = Map<String, dynamic>.from(result as Map);
     if (map['success'] != true) {
       throw RewardsException(
@@ -26,7 +29,7 @@ class RewardsRepository {
   }
 
   Future<int> demoGrant(int points) async {
-    final result = await client.rpc(
+    final result = await _rpc(
       'demo_reward_grant',
       params: {'p_points': points},
     );

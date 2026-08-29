@@ -1,5 +1,7 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'rpc_caller.dart';
+
 class PaymentException implements Exception {
   const PaymentException(this.reason);
 
@@ -10,17 +12,18 @@ class PaymentException implements Exception {
 }
 
 class PaymentRepository {
-  const PaymentRepository(this.client);
+  PaymentRepository(SupabaseClient client, {RpcCaller? rpcCaller})
+    : _rpc = rpcCaller ?? client.rpc;
 
-  final SupabaseClient client;
+  final RpcCaller _rpc;
 
   Future<Map<String, dynamic>> ensureWalletAccount() async {
-    final result = await client.rpc('ensure_wallet_account');
+    final result = await _rpc('ensure_wallet_account');
     return Map<String, dynamic>.from(result as Map);
   }
 
   Future<Map<String, dynamic>> topUpDemoWallet(double amount) async {
-    final result = await client.rpc(
+    final result = await _rpc(
       'demo_wallet_top_up',
       params: {'p_amount': amount},
     );
@@ -32,8 +35,24 @@ class PaymentRepository {
   }
 
   Future<Map<String, dynamic>> authoriseWalletPayment(String rideId) async {
-    final result = await client.rpc(
+    final result = await _rpc(
       'authorise_wallet_payment',
+      params: {'p_ride_id': rideId},
+    );
+    return Map<String, dynamic>.from(result as Map);
+  }
+
+  Future<Map<String, dynamic>> completeCashPayment(String rideId) async {
+    final result = await _rpc(
+      'complete_cash_payment',
+      params: {'p_ride_id': rideId},
+    );
+    return Map<String, dynamic>.from(result as Map);
+  }
+
+  Future<Map<String, dynamic>> captureWalletPayment(String rideId) async {
+    final result = await _rpc(
+      'capture_wallet_payment',
       params: {'p_ride_id': rideId},
     );
     return Map<String, dynamic>.from(result as Map);
@@ -47,7 +66,7 @@ class PaymentRepository {
     required double fee,
     double driverCompensation = 0,
   }) async {
-    final result = await client.rpc(
+    final result = await _rpc(
       'cancel_ride_and_settle_payment',
       params: {
         'p_ride_id': rideId,

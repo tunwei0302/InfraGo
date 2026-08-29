@@ -21,6 +21,7 @@ import 'payment_method.dart';
 import 'payment_repository.dart';
 import 'pickup_confirmation_sheet.dart';
 import 'pickup_landmark_service.dart';
+import 'receipt_screen.dart';
 import 'ride.dart';
 import 'ride_booking_repository.dart';
 import 'rewards_repository.dart';
@@ -321,6 +322,12 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
                 _state.markEnRoute();
               case 'completed':
                 _state.markCompleted();
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => ReceiptScreen(rideId: rideId),
+                  ),
+                );
               case 'cancelled':
                 _state.markCancelledFromServer(reason: 'Ride cancelled');
               case 'requested':

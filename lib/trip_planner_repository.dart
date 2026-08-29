@@ -158,11 +158,22 @@ class SupabaseTripPlannerRepository implements TripPlannerRepository {
       }
     }
 
+    Map<String, dynamic>? ratingSummary;
+    try {
+      ratingSummary = await client
+          .from('driver_rating_summary')
+          .select('average_score')
+          .eq('driver_id', driverId)
+          .maybeSingle();
+    } catch (_) {
+      ratingSummary = null;
+    }
+
     final row = publicDriver ?? const <String, dynamic>{};
     return AssignedDriverInfo(
       driverId: driverId,
       name: (row['name'] ?? profile?['name'] ?? 'Assigned driver').toString(),
-      rating: (row['rating'] as num?)?.toDouble() ?? 0,
+      rating: (ratingSummary?['average_score'] as num?)?.toDouble() ?? 0,
       vehicleMake: (row['vehicle_make'] ?? 'Registered').toString(),
       vehicleModel: (row['vehicle_model'] ?? 'vehicle').toString(),
       vehiclePlate: (row['plate_number'] ?? 'Details pending').toString(),
