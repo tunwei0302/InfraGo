@@ -10,6 +10,7 @@ import 'app_theme.dart';
 import 'booking_form_screen.dart';
 import 'carpool_matcher.dart';
 import 'chat_with_driver_screen.dart';
+import 'cancellation_policy.dart';
 import 'checkout_sheet.dart';
 import 'driver_assigned_panel.dart';
 import 'fare_estimator.dart';
@@ -477,13 +478,115 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
   Future<void> _cancelActiveRide() async {
     final rideId = _state.activeRideId;
     if (rideId == null) return;
+
+    final Map<String, dynamic> rideRow;
     try {
-      await _tripRepository.cancelRide(rideId, reason: 'Rider cancelled');
+      rideRow = await supabase
+          .from('rides')
+          .select('status, accepted_at, departure_time')
+          .eq('id', rideId)
+          .single();
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not load ride details: $error')),
+      );
+      return;
+    }
+
+    final Map<String, dynamic>? paymentRow = await supabase
+        .from('payments')
+        .select('quoted_amount, discount_amount')
+        .eq('ride_id', rideId)
+        .inFilter('status', ['pending', 'authorised', 'paid'])
+        .maybeSingle();
+    if (paymentRow == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Could not find this ride's payment details."),
+        ),
+      );
+      return;
+    }
+
+    final confirmedFare =
+        (paymentRow['quoted_amount'] as num).toDouble() -
+        (paymentRow['discount_amount'] as num).toDouble();
+    final acceptedAt = rideRow['accepted_at'] == null
+        ? null
+        : DateTime.parse(rideRow['accepted_at'] as String);
+    final departureTime = DateTime.parse(rideRow['departure_time'] as String);
+    final now = DateTime.now();
+    final assignedDriver = _state.assignedDriver;
+    final driverLateMinutes = acceptedAt == null || assignedDriver == null
+        ? null
+        : now.difference(acceptedAt).inMinutes - assignedDriver.etaMinutes;
+
+    final outcome = CancellationPolicy.evaluate(
+      cancelledBy: CancelledBy.rider,
+      rideStatus: rideRow['status'] as String,
+      confirmedFare: confirmedFare,
+      now: now,
+      acceptedAt: acceptedAt,
+      isScheduled: _state.scheduledDeparture != null,
+      departureTime: departureTime,
+      driverLateMinutes: driverLateMinutes,
+    );
+
+    if (!outcome.cancellable) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('This ride can no longer be cancelled here.'),
+        ),
+      );
+      return;
+    }
+
+    if (!mounted) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Cancel this ride?'),
+        content: Text(
+          outcome.isFree
+              ? 'This cancellation is free.'
+              : 'A cancellation fee of RM${outcome.fee.toStringAsFixed(2)} applies.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Keep ride'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Cancel ride'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    try {
+      await _paymentRepository.cancelRideAndSettlePayment(
+        rideId: rideId,
+        cancelledBy: 'rider',
+        reason: 'Rider cancelled',
+        policyVersion: CancellationPolicy.policyVersion,
+        fee: outcome.fee,
+      );
       if (!mounted) return;
       _state.cancelCurrentFlow(reason: 'Rider cancelled');
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Ride cancelled.')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            outcome.isFree
+                ? 'Ride cancelled for free.'
+                : 'Ride cancelled. Fee: RM${outcome.fee.toStringAsFixed(2)}',
+          ),
+        ),
+      );
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(

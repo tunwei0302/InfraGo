@@ -1,19 +1,39 @@
 import 'package:flutter/material.dart';
 
+import 'payment_repository.dart';
 import 'ride.dart';
 import 'supabase_config.dart';
 
 class AvailableOrdersScreen extends StatelessWidget {
   const AvailableOrdersScreen({super.key});
 
-  Future<void> _acceptRide(Ride ride) async {
+  Future<void> _acceptRide(BuildContext context, Ride ride) async {
     await supabase
         .from('rides')
         .update({
           'driver_id': supabase.auth.currentUser!.id,
           'status': 'driver_assigned',
+          'accepted_at': DateTime.now().toUtc().toIso8601String(),
         })
         .eq('id', ride.id);
+
+    try {
+      final result = await PaymentRepository(
+        supabase,
+      ).authoriseWalletPayment(ride.id);
+      if (result['success'] != true &&
+          result['reason'] != 'payment_not_found' &&
+          context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Wallet reserve failed: ${result['reason']}'),
+          ),
+        );
+      }
+    } catch (_) {
+      // Cash rides and any other non-wallet payment methods reach this
+      // path harmlessly; the ride is already accepted regardless.
+    }
   }
 
   @override
@@ -41,7 +61,7 @@ class AvailableOrdersScreen extends StatelessWidget {
               return ListTile(
                 title: Text('${order.pickup} → ${order.destination}'),
                 trailing: ElevatedButton(
-                  onPressed: () => _acceptRide(order),
+                  onPressed: () => _acceptRide(context, order),
                   child: const Text('Accept'),
                 ),
               );
