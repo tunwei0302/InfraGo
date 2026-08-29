@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:infra_go/chat_message.dart';
+import 'package:infra_go/kueh/chat_message.dart';
 
 void main() {
   test('creates a chat message from Supabase data', () {

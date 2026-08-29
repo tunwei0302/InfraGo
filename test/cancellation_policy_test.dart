@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:infra_go/cancellation_policy.dart';
+import 'package:infra_go/foo/cancellation_policy.dart';
 
 void main() {
   const fare = 20.0;

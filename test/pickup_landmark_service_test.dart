@@ -4,7 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image_picker/image_picker.dart';
 
-import 'package:infra_go/pickup_landmark_service.dart';
+import 'package:infra_go/foo/pickup_landmark_service.dart';
 
 Future<Uint8List> _pngBytes(int width, int height) async {
   final recorder = ui.PictureRecorder();

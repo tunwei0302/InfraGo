@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:latlong2/latlong.dart';
 
-import 'package:infra_go/trip_planner_repository.dart';
+import 'package:infra_go/kueh/trip_planner_repository.dart';
 
 void main() {
   test('RideDraft writes complete shared-ride fields', () {

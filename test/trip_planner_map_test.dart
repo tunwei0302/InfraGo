@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:latlong2/latlong.dart';
 
-import 'package:infra_go/trip_planner_map_screen.dart';
+import 'package:infra_go/kueh/trip_planner_map_screen.dart';
 
 void main() {
   test('formats map coordinates consistently', () {

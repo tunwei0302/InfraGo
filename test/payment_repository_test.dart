@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import 'package:infra_go/payment_repository.dart';
+import 'package:infra_go/foo/payment_repository.dart';
 
 SupabaseClient _dummyClient() =>
     SupabaseClient('https://example.supabase.co', 'test-anon-key');

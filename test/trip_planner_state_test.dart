@@ -1,9 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:latlong2/latlong.dart';
 
-import 'package:infra_go/location_search_service.dart';
-import 'package:infra_go/osrm_routing_service.dart';
-import 'package:infra_go/trip_planner_state.dart';
+import 'package:infra_go/kueh/location_search_service.dart';
+import 'package:infra_go/kueh/osrm_routing_service.dart';
+import 'package:infra_go/kueh/trip_planner_state.dart';
 
 class _FakeRouting extends OsrmRoutingService {
   _FakeRouting() : super(baseUrl: 'http://unused.test');

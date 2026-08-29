@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:infra_go/fare_estimator.dart';
+import 'package:infra_go/foo/fare_estimator.dart';
 
 void main() {
   group('economyFare', () {

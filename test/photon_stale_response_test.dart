@@ -6,7 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:latlong2/latlong.dart';
 
-import 'package:infra_go/location_search_service.dart';
+import 'package:infra_go/kueh/location_search_service.dart';
 
 void main() {
   group('Photon stale response handling', () {

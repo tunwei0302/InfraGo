@@ -7,7 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 // silently breaks Contact Driver for passengers.
 void main() {
   test('solo acceptance writes driver_id with the driver_assigned status', () {
-    final source = File('lib/available_orders_screen.dart').readAsStringSync();
+    final source = File('lib/heng/available_orders_screen.dart').readAsStringSync();
     final acceptStart = source.indexOf('Future<void> _acceptRide');
     final buildStart = source.indexOf('@override', acceptStart);
     final acceptMethod = source.substring(acceptStart, buildStart);

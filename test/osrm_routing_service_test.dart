@@ -5,7 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:latlong2/latlong.dart';
 
-import 'package:infra_go/osrm_routing_service.dart';
+import 'package:infra_go/kueh/osrm_routing_service.dart';
 
 void main() {
   const origin = LatLng(3.139, 101.6869);

@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:latlong2/latlong.dart';
 
-import 'package:infra_go/vehicle_presence_service.dart';
+import 'package:infra_go/kueh/vehicle_presence_service.dart';
 
 const _center = LatLng(3.139, 101.6869);
 const _close = LatLng(3.1395, 101.6875);

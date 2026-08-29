@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:infra_go/receipt_repository.dart';
+import 'package:infra_go/foo/receipt_repository.dart';
 
 // These fixtures mirror exactly what create_ride_with_quote_and_payment and
 // cancel_ride_and_settle_payment (20260829000000_f_payments_wallet.sql)

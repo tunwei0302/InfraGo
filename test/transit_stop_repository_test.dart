@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:latlong2/latlong.dart';
 
-import 'package:infra_go/transit_stop_repository.dart';
+import 'package:infra_go/tey/transit_stop_repository.dart';
 
 const _center = LatLng(3.139, 101.6869);
 TransitStopValue _s(String id, LatLng loc, {String? source}) =>

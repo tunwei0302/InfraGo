@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:infra_go/login_screen.dart';
-import 'package:infra_go/sign_up_screen.dart';
+import 'package:infra_go/shared/login_screen.dart';
+import 'package:infra_go/shared/sign_up_screen.dart';
 
 void main() {
   testWidgets('Login screen shows validation errors on empty submit',

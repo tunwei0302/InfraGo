@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:latlong2/latlong.dart';
 
-import 'package:infra_go/carpool_matcher.dart';
+import 'package:infra_go/kueh/carpool_matcher.dart';
 
 const _base = LatLng(3.139, 101.6869);
 const _p1 = LatLng(3.1392, 101.6871);
