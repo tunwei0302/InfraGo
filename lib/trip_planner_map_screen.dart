@@ -7,10 +7,21 @@ import 'package:latlong2/latlong.dart';
 
 import 'app_theme.dart';
 import 'booking_form_screen.dart';
+import 'carpool_matcher.dart';
 import 'chat_with_driver_screen.dart';
+import 'driver_assigned_panel.dart';
 import 'location_search_service.dart';
+import 'osrm_routing_service.dart';
+import 'pickup_confirmation_sheet.dart';
 import 'ride.dart';
+import 'shared_route_markers.dart';
+import 'supabase_carpool_service.dart';
 import 'supabase_config.dart';
+import 'transit_stop_repository.dart';
+import 'trip_planner_repository.dart';
+import 'trip_planner_state.dart';
+import 'vehicle_options_sheet.dart';
+import 'vehicle_presence_service.dart';
 
 const LatLng kKualaLumpurCenter = LatLng(3.1390, 101.6869);
 
@@ -27,6 +38,8 @@ double straightLineDistanceMeters(LatLng origin, LatLng destination) =>
 
 enum _MapEditTarget { pickup, destination }
 
+enum _TransitStatus { idle, loading, data, empty, error }
+
 class TripPlannerMapScreen extends StatefulWidget {
   const TripPlannerMapScreen({super.key});
 
@@ -38,20 +51,280 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
   final MapController _mapController = MapController();
   final PhotonLocationSearchService _locationSearch =
       PhotonLocationSearchService();
+  final OsrmRoutingService _routing = OsrmRoutingService();
+  late final TripPlannerState _state;
+  late final VehiclePresenceService _presence;
+
   StreamSubscription<Position>? _positionSubscription;
+  StreamSubscription<List<CoarseVehicle>>? _nearbySubscription;
+  StreamSubscription<RideLifecycleSnapshot>? _assignedSubscription;
+  StreamSubscription<ExactDriver?>? _exactDriverSubscription;
+
   LatLng? _currentLocation;
-  GeoPlace? _pickup;
-  GeoPlace? _destination;
   String? _locationMessage;
   bool _isLocating = true;
   bool _isResolvingPin = false;
   bool _mapIsReady = false;
   _MapEditTarget _mapEditTarget = _MapEditTarget.destination;
 
+  List<CoarseVehicle> _nearby = const [];
+  _TransitStatus _transitStatus = _TransitStatus.idle;
+  List<NearbyTransitStop> _nearbyStops = const [];
+  String? _transitError;
+  CarpoolMatch? _currentMatch;
+  late final TripPlannerRepository _tripRepository;
+  late final SupabaseCarpoolService _carpoolService;
+  late final TransitStopRepository _transitRepository;
+  String _presenceCategory = 'economy_4';
+
   @override
   void initState() {
     super.initState();
+    _state = TripPlannerState(routing: _routing, search: _locationSearch);
+    _state.addListener(_onStateChanged);
+    _state.onRequestSubmitted(_handleRequestSubmitted);
+    _state.onCancelRequested(_handleCancelled);
+    _tripRepository = SupabaseTripPlannerRepository(supabase);
+    _carpoolService = SupabaseCarpoolService(
+      client: supabase,
+      matcher: CarpoolMatcher(routing: OsrmCarpoolRouting(_routing)),
+    );
+    _transitRepository = DatabaseTransitStopRepository(
+      () async => List<Map<String, dynamic>>.from(
+        await supabase.from('transit_stops').select(),
+      ),
+    );
+    _presence = VehiclePresenceService(
+      coarseFactory: (_) => supabase
+          .from('nearby_driver_presence')
+          .stream(primaryKey: ['anonymised_id']),
+      exactFactory: (rideId) => supabase
+          .from('assigned_driver_location')
+          .stream(primaryKey: ['ride_id'])
+          .eq('ride_id', rideId)
+          .map((rows) => rows.isEmpty ? null : rows.first),
+    );
     _startLocationTracking();
+  }
+
+  void _onStateChanged() {
+    if (!mounted) return;
+    final phase = _state.phase;
+    setState(() {
+      if (phase == TripPlannerPhase.explore ||
+          phase == TripPlannerPhase.cancelled) {
+        _currentMatch = null;
+      }
+    });
+    if (phase == TripPlannerPhase.vehicleOptions &&
+        _state.selectedVehicle == null) {
+      unawaited(_openVehicleOptionsSheet());
+    }
+    if (phase == TripPlannerPhase.pickupConfirmation) {
+      unawaited(_openPickupConfirmationSheet());
+    }
+  }
+
+  Future<void> _handleRequestSubmitted() async {
+    final pickup = _state.pickup;
+    final destination = _state.destination;
+    final vehicle = _state.selectedVehicle;
+    final route = _state.route;
+    final userId = supabase.auth.currentUser?.id;
+    if (pickup == null ||
+        destination == null ||
+        vehicle == null ||
+        route == null ||
+        userId == null) {
+      throw const TripPlannerRepositoryException(
+        'Sign in and complete the trip before requesting a ride.',
+      );
+    }
+    final rideId = await _tripRepository.createRide(
+      RideDraft(
+        riderId: userId,
+        pickupLabel: pickup.bookingLabel,
+        destinationLabel: destination.bookingLabel,
+        pickup: pickup.point,
+        destination: destination.point,
+        serviceType: _databaseServiceType(vehicle),
+        passengerCount: _state.passengerCount,
+        departureTime: _state.effectiveDeparture,
+        routeDistanceMeters: route.distanceMeters,
+        routeDurationSeconds: route.durationSeconds,
+        pickupNote: _state.pickupNote,
+        estimatedSoloFare: vehicle.isShared ? null : vehicle.estimatedFareMin,
+        estimatedSharedFare: vehicle.isShared ? vehicle.estimatedFareMin : null,
+      ),
+    );
+    _state.setActiveRideId(rideId);
+    _watchRide(rideId);
+    if (vehicle.isShared) unawaited(_trySharedMatch(rideId));
+  }
+
+  String _databaseServiceType(VehicleOption vehicle) {
+    if (vehicle.isShared) return 'shared_economy';
+    return vehicle.id == 'six_seater' || vehicle.id == 'suv'
+        ? 'six_seater'
+        : 'economy_4';
+  }
+
+  void _handleCancelled() {
+    _nearbySubscription?.cancel();
+    _assignedSubscription?.cancel();
+    _exactDriverSubscription?.cancel();
+  }
+
+  void _watchRide(String rideId) {
+    _assignedSubscription?.cancel();
+    _assignedSubscription = _tripRepository
+        .watchRide(rideId)
+        .listen(
+          (snapshot) async {
+            if (!mounted) return;
+            switch (snapshot.status) {
+              case 'matched':
+              case 'driver_assigned':
+                final driverId = snapshot.driverId;
+                if (driverId != null) {
+                  await _showAssignedDriver(rideId, driverId);
+                }
+              case 'en_route':
+                final driverId = snapshot.driverId;
+                if (_state.assignedDriver == null && driverId != null) {
+                  await _showAssignedDriver(rideId, driverId);
+                }
+                _state.markEnRoute();
+              case 'completed':
+                _state.markCompleted();
+              case 'cancelled':
+                _state.markCancelledFromServer(reason: 'Ride cancelled');
+              case 'requested':
+              case 'waiting_match':
+              default:
+                break;
+            }
+          },
+          onError: (Object error) {
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Ride updates unavailable: $error')),
+            );
+          },
+        );
+  }
+
+  Future<void> _showAssignedDriver(String rideId, String driverId) async {
+    try {
+      final driver = await _tripRepository.loadAssignedDriver(driverId);
+      if (!mounted || _state.activeRideId != rideId) return;
+      _state.markDriverAssigned(driver);
+      await _exactDriverSubscription?.cancel();
+      _exactDriverSubscription = _presence.exactAssigned(rideId: rideId).listen(
+        (exact) {
+          final current = _state.assignedDriver;
+          if (!mounted || exact == null || current == null) return;
+          _state.markDriverAssigned(
+            AssignedDriverInfo(
+              driverId: current.driverId,
+              name: current.name,
+              rating: current.rating,
+              vehicleMake: current.vehicleMake,
+              vehicleModel: current.vehicleModel,
+              vehiclePlate: exact.vehiclePlate,
+              vehicleColor: current.vehicleColor,
+              etaMinutes: current.etaMinutes,
+              exactLocation: exact.exactLocation,
+              phoneLastFour: current.phoneLastFour,
+            ),
+          );
+        },
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Driver details unavailable: $error')),
+      );
+    }
+  }
+
+  Future<void> _trySharedMatch(String rideId) async {
+    final pickup = _state.pickup;
+    final destination = _state.destination;
+    final userId = supabase.auth.currentUser?.id;
+    if (pickup == null || destination == null || userId == null) return;
+    final request = RideRequest(
+      id: rideId,
+      riderId: userId,
+      pickup: pickup.point,
+      destination: destination.point,
+      departAt: _state.effectiveDeparture,
+      passengers: _state.passengerCount,
+    );
+    try {
+      final matches = await _carpoolService.findMatches(request);
+      if (!mounted || matches.isEmpty || _state.activeRideId != rideId) return;
+      final match = matches.first;
+      final accepted = await showModalBottomSheet<bool>(
+        context: context,
+        isScrollControlled: true,
+        useSafeArea: true,
+        builder: (sheetContext) => SharedRouteMarkers.buildMatchBottomSheet(
+          context: sheetContext,
+          match: match,
+          myRiderIndex: 0,
+          onAccept: () => Navigator.pop(sheetContext, true),
+          onDismiss: () => Navigator.pop(sheetContext, false),
+        ),
+      );
+      if (accepted != true || !mounted) return;
+      await _carpoolService.commitMatch(match);
+      if (!mounted) return;
+      setState(() => _currentMatch = match);
+      _focusSelectedPlaces(pickup.point);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Shared ride matched · score ${match.score}/100'),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Shared matching is still searching: $error')),
+      );
+    }
+  }
+
+  Future<void> _cancelActiveRide() async {
+    final rideId = _state.activeRideId;
+    if (rideId == null) return;
+    try {
+      await _tripRepository.cancelRide(rideId, reason: 'Rider cancelled');
+      if (!mounted) return;
+      _state.cancelCurrentFlow(reason: 'Rider cancelled');
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Ride cancelled.')));
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not cancel ride: $error')));
+    }
+  }
+
+  @override
+  void dispose() {
+    _positionSubscription?.cancel();
+    _nearbySubscription?.cancel();
+    _assignedSubscription?.cancel();
+    _exactDriverSubscription?.cancel();
+    _state.removeListener(_onStateChanged);
+    _state.dispose();
+    _locationSearch.close();
+    _routing.close();
+    _mapController.dispose();
+    super.dispose();
   }
 
   Future<void> _startLocationTracking() async {
@@ -110,31 +383,44 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
   }
 
   void _applyPosition(Position position, {bool moveMap = false}) {
-    if (!mounted) {
-      return;
-    }
+    if (!mounted) return;
     final point = LatLng(position.latitude, position.longitude);
-    final shouldSetPickup = _pickup == null;
+    final shouldSetPickup = _state.pickup == null;
     setState(() {
       _currentLocation = point;
       _isLocating = false;
       _locationMessage = null;
-      if (shouldSetPickup) {
-        _pickup = GeoPlace.coordinate(point, name: 'Current location');
-      }
     });
-    if (moveMap) {
-      _moveTo(point);
-    }
     if (shouldSetPickup) {
+      final place = GeoPlace.coordinate(point, name: 'Current location');
+      _state.setPickup(place);
       unawaited(_resolvePin(point, _MapEditTarget.pickup));
     }
+    if (moveMap) _moveTo(point);
+    _subscribeNearby(point);
+  }
+
+  void _subscribeNearby(LatLng center) {
+    _nearbySubscription?.cancel();
+    _nearbySubscription = _presence
+        .nearbyCoarse(
+          center: center,
+          category: _presenceCategory,
+          radiusMeters: 2000,
+        )
+        .listen(
+          (list) {
+            if (!mounted) return;
+            setState(() => _nearby = list);
+          },
+          onError: (_) {
+            if (mounted) setState(() => _nearby = const []);
+          },
+        );
   }
 
   void _setLocationFailure(String message) {
-    if (!mounted) {
-      return;
-    }
+    if (!mounted) return;
     setState(() {
       _isLocating = false;
       _locationMessage = message;
@@ -148,19 +434,22 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
   }
 
   void _focusSelectedPlaces(LatLng fallback) {
-    if (!_mapIsReady) {
-      return;
-    }
-    final pickup = _pickup;
-    final destination = _destination;
+    if (!_mapIsReady) return;
+    final pickup = _state.pickup;
+    final destination = _state.destination;
     if (pickup == null || destination == null) {
       _moveTo(fallback);
       return;
     }
+    final points = <LatLng>[pickup.point, destination.point];
+    final routePts = _state.route?.points;
+    if (routePts != null && routePts.isNotEmpty) {
+      points.addAll(routePts);
+    }
     _mapController.fitCamera(
       CameraFit.coordinates(
-        coordinates: [pickup.point, destination.point],
-        padding: const EdgeInsets.fromLTRB(60, 260, 60, 150),
+        coordinates: points,
+        padding: const EdgeInsets.fromLTRB(60, 260, 60, 280),
         maxZoom: 16,
       ),
     );
@@ -172,57 +461,45 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
       await _startLocationTracking();
       return;
     }
-    setState(() {
-      _pickup = GeoPlace.coordinate(point, name: 'Current location');
-      _mapEditTarget = _MapEditTarget.destination;
-    });
+    final place = GeoPlace.coordinate(point, name: 'Current location');
+    _state.setPickup(place);
+    setState(() => _mapEditTarget = _MapEditTarget.destination);
     _moveTo(point);
     await _resolvePin(point, _MapEditTarget.pickup);
   }
 
   void _selectPointOnMap(TapPosition _, LatLng point) {
     final target = _mapEditTarget;
-    setState(() {
-      final place = GeoPlace.coordinate(point);
-      if (target == _MapEditTarget.pickup) {
-        _pickup = place;
-      } else {
-        _destination = place;
-      }
-    });
+    final place = GeoPlace.coordinate(point);
+    if (target == _MapEditTarget.pickup) {
+      _state.setPickup(place);
+    } else {
+      _state.setDestination(place);
+    }
     unawaited(_resolvePin(point, target));
   }
 
   Future<void> _resolvePin(LatLng point, _MapEditTarget target) async {
-    if (mounted) {
-      setState(() => _isResolvingPin = true);
-    }
+    if (mounted) setState(() => _isResolvingPin = true);
     try {
       final place = await _locationSearch.reverse(point);
-      if (!mounted || place == null || !_targetStillAt(target, point)) {
-        return;
-      }
-      setState(() {
+      if (!mounted || place == null) return;
+      final current = target == _MapEditTarget.pickup
+          ? _state.pickup
+          : _state.destination;
+      if (current == null ||
+          (current.point.latitude == point.latitude &&
+              current.point.longitude == point.longitude)) {
         if (target == _MapEditTarget.pickup) {
-          _pickup = place;
+          _state.setPickup(place);
         } else {
-          _destination = place;
+          _state.setDestination(place);
         }
-      });
-    } on LocationSearchException {
-      // Keep coordinates as a usable fallback when reverse lookup fails.
-    } finally {
-      if (mounted) {
-        setState(() => _isResolvingPin = false);
       }
+    } on LocationSearchException {
+    } finally {
+      if (mounted) setState(() => _isResolvingPin = false);
     }
-  }
-
-  bool _targetStillAt(_MapEditTarget target, LatLng point) {
-    final selected = target == _MapEditTarget.pickup ? _pickup : _destination;
-    return selected != null &&
-        selected.point.latitude == point.latitude &&
-        selected.point.longitude == point.longitude;
   }
 
   Future<void> _openPlaceSearch(_MapEditTarget target) async {
@@ -238,38 +515,120 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
             ? 'Search pickup location'
             : 'Search destination',
         searchService: _locationSearch,
-        near: _currentLocation ?? _pickup?.point,
+        near: _currentLocation ?? _state.pickup?.point,
         currentLocation: target == _MapEditTarget.pickup
             ? _currentLocation
             : null,
       ),
     );
-    if (place == null || !mounted) {
-      return;
+    if (place == null || !mounted) return;
+    if (target == _MapEditTarget.pickup) {
+      _state.setPickup(place);
+      setState(() => _mapEditTarget = _MapEditTarget.destination);
+    } else {
+      _state.setDestination(place);
+      setState(() => _mapEditTarget = _MapEditTarget.destination);
     }
-
-    setState(() {
-      if (target == _MapEditTarget.pickup) {
-        _pickup = place;
-        _mapEditTarget = _MapEditTarget.destination;
-      } else {
-        _destination = place;
-        _mapEditTarget = _MapEditTarget.destination;
-      }
-    });
     _focusSelectedPlaces(place.point);
   }
 
+  Future<void> _openVehicleOptionsSheet() async {
+    final route = _state.route;
+    final options = [
+      const VehicleOption(
+        id: 'economy_4',
+        name: 'Economy',
+        seats: 4,
+        estimatedFareMin: 8.0,
+        estimatedFareMax: 12.0,
+      ),
+      const VehicleOption(
+        id: 'shared_economy',
+        name: 'Shared Economy',
+        seats: 4,
+        estimatedFareMin: 5.0,
+        estimatedFareMax: 8.0,
+        isShared: true,
+      ),
+      const VehicleOption(
+        id: 'six_seater',
+        name: 'SUV / 6-seater',
+        seats: 6,
+        estimatedFareMin: 18.0,
+        estimatedFareMax: 26.0,
+      ),
+    ];
+    if (!mounted) return;
+    final summary = route == null
+        ? null
+        : '${route.distanceText} · ${route.etaText}';
+    final selection = await VehicleOptionsSheet.show(
+      context,
+      options: options,
+      selectedId: _state.selectedVehicle?.id,
+      routeSummary: summary,
+    );
+    if (selection == null || !mounted) {
+      if (_state.phase == TripPlannerPhase.vehicleOptions) _state.goBack();
+      return;
+    }
+    _state.selectVehicle(selection.vehicle);
+    _state.setRidePreferences(
+      passengerCount: selection.passengerCount,
+      scheduledDeparture: selection.scheduledDeparture,
+    );
+    _presenceCategory = _databaseServiceType(selection.vehicle);
+    final center = _currentLocation ?? _state.pickup?.point;
+    if (center != null) _subscribeNearby(center);
+    _state.proceedToPickupConfirmation();
+  }
+
+  Future<void> _openPickupConfirmationSheet() async {
+    final pickup = _state.pickup;
+    final destination = _state.destination;
+    final vehicle = _state.selectedVehicle;
+    final route = _state.route;
+    if (pickup == null ||
+        destination == null ||
+        vehicle == null ||
+        route == null) {
+      return;
+    }
+    if (!mounted) return;
+    final confirmation = await PickupConfirmationSheet.show(
+      context,
+      pickup: pickup,
+      destination: destination,
+      vehicle: vehicle,
+      route: route,
+      passengerCount: _state.passengerCount,
+      scheduledDeparture: _state.scheduledDeparture,
+    );
+    if (!mounted) return;
+    if (confirmation != null) {
+      _state.setPickupNote(confirmation.pickupNote);
+      final ok = await _state.submitRideRequest();
+      if (ok) {
+        _focusSelectedPlaces(pickup.point);
+      } else if (mounted && _state.errorMessage != null) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(_state.errorMessage!)));
+      }
+    } else if (_state.phase == TripPlannerPhase.pickupConfirmation) {
+      _state.goBack();
+    }
+  }
+
   void _reviewTrip() {
-    final pickup = _pickup;
-    final destination = _destination;
+    final pickup = _state.pickup;
+    final destination = _state.destination;
     if (pickup == null || destination == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Choose pickup and destination first.')),
       );
       return;
     }
-
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -279,25 +638,181 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
     );
   }
 
-  @override
-  void dispose() {
-    _positionSubscription?.cancel();
-    _locationSearch.close();
-    _mapController.dispose();
-    super.dispose();
+  Future<void> _loadTransitStops() async {
+    final center = _currentLocation ?? _state.pickup?.point;
+    if (center == null) return;
+    setState(() {
+      _transitStatus = _TransitStatus.loading;
+      _transitError = null;
+    });
+    try {
+      final result = await _transitRepository.nearest(
+        center,
+        limit: 5,
+        radiusMeters: 2000,
+      );
+      if (!mounted) return;
+      setState(() {
+        _nearbyStops = result;
+        _transitStatus = result.isEmpty
+            ? _TransitStatus.empty
+            : _TransitStatus.data;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _transitStatus = _TransitStatus.error;
+        _transitError = 'Unable to load stops: $e';
+      });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final riderId = supabase.auth.currentUser?.id;
-    final pickup = _pickup;
-    final destination = _destination;
+    final phase = _state.phase;
+    final pickup = _state.pickup;
+    final destination = _state.destination;
+    final route = _state.route;
     final distance = pickup != null && destination != null
         ? straightLineDistanceMeters(pickup.point, destination.point)
         : null;
 
+    List<LatLng> polylinePoints =
+        _currentMatch?.bestRoute.points ??
+        route?.points ??
+        (pickup != null && destination != null
+            ? [pickup.point, destination.point]
+            : const []);
+    final polylineColor = Theme.of(context).colorScheme.secondary;
+
+    final markers = <Marker>[
+      if (_currentLocation != null)
+        Marker(
+          point: _currentLocation!,
+          width: 24,
+          height: 24,
+          child: const _CurrentLocationDot(),
+        ),
+    ];
+
+    if (pickup != null && destination != null && _currentMatch != null) {
+      final requests = _currentMatch!.requests;
+      final me = RiderMarkerSet(
+        riderIndex: 0,
+        pickup: pickup.point,
+        pickupPlace: pickup,
+        destination: destination.point,
+        destinationPlace: destination,
+        isMe: true,
+      );
+      final partner = RiderMarkerSet(
+        riderIndex: 1,
+        pickup: requests[1].pickup,
+        destination: requests[1].destination,
+      );
+      markers.addAll(
+        SharedRouteMarkers.buildForRider(
+          me: me,
+          partner: partner,
+          match: _currentMatch,
+        ),
+      );
+    } else {
+      if (pickup != null) {
+        markers.add(
+          Marker(
+            point: pickup.point,
+            width: 48,
+            height: 48,
+            alignment: Alignment.bottomCenter,
+            child: const _MapPin(
+              color: Color(0xFF1DB173),
+              icon: Icons.trip_origin,
+              label: 'Pickup point',
+            ),
+          ),
+        );
+      }
+      if (destination != null) {
+        markers.add(
+          Marker(
+            point: destination.point,
+            width: 48,
+            height: 48,
+            alignment: Alignment.bottomCenter,
+            child: _MapPin(
+              color: Theme.of(context).colorScheme.error,
+              icon: Icons.location_pin,
+              label: 'Destination',
+            ),
+          ),
+        );
+      }
+    }
+
+    for (final v in _nearby) {
+      markers.add(
+        Marker(
+          point: v.coarseLocation,
+          width: 32,
+          height: 32,
+          child: const _NearbyVehiclePin(),
+        ),
+      );
+    }
+    final exactDriverLocation = _state.assignedDriver?.exactLocation;
+    if (exactDriverLocation != null) {
+      markers.add(
+        Marker(
+          point: exactDriverLocation,
+          width: 40,
+          height: 40,
+          child: const _NearbyVehiclePin(),
+        ),
+      );
+    }
+    if (_transitStatus == _TransitStatus.data) {
+      for (final s in _nearbyStops) {
+        markers.add(
+          Marker(
+            point: s.stop.location,
+            width: 36,
+            height: 36,
+            alignment: Alignment.bottomCenter,
+            child: _TransitStopPin(stop: s),
+          ),
+        );
+      }
+    }
+
+    final showAssignedPanel =
+        phase == TripPlannerPhase.searchingDriver ||
+        phase == TripPlannerPhase.driverAssigned ||
+        phase == TripPlannerPhase.enRoute;
+
     return Scaffold(
-      appBar: AppBar(title: const Text('Plan a ride')),
+      appBar: AppBar(
+        title: const Text('Plan a ride'),
+        actions: [
+          IconButton(
+            onPressed: _loadTransitStops,
+            tooltip: 'Show nearby stops',
+            icon: const Icon(Icons.directions_transit),
+          ),
+          if (phase.index >= TripPlannerPhase.routePreview.index &&
+              phase.index < TripPlannerPhase.searchingDriver.index ||
+              phase == TripPlannerPhase.completed ||
+              phase == TripPlannerPhase.cancelled)
+            IconButton(
+              onPressed: () {
+                _state.resetToExplore(keepPickup: _state.pickup);
+              },
+              tooltip: 'Start over',
+              icon: const Icon(Icons.refresh),
+            ),
+        ],
+      ),
       body: Stack(
         children: [
           FlutterMap(
@@ -311,64 +826,31 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
               onMapReady: () {
                 _mapIsReady = true;
                 final point = _currentLocation;
-                if (point != null) {
-                  _moveTo(point);
-                }
+                if (point != null) _moveTo(point);
+                _loadTransitStops();
               },
-              onTap: _selectPointOnMap,
+              onTap: phase.index >= TripPlannerPhase.searchingDriver.index
+                  ? null
+                  : _selectPointOnMap,
             ),
             children: [
               TileLayer(
                 urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                 userAgentPackageName: 'com.infrago.infra_go',
               ),
-              if (pickup != null && destination != null)
+              if (polylinePoints.length >= 2)
                 PolylineLayer(
                   polylines: [
                     Polyline(
-                      points: [pickup.point, destination.point],
+                      points: polylinePoints,
                       strokeWidth: 5,
-                      color: Theme.of(context).colorScheme.secondary,
+                      color: polylineColor,
                       borderStrokeWidth: 2,
                       borderColor: Theme.of(context).colorScheme.surface,
                     ),
                   ],
                 ),
-              MarkerLayer(
-                markers: [
-                  if (_currentLocation != null)
-                    Marker(
-                      point: _currentLocation!,
-                      width: 24,
-                      height: 24,
-                      child: const _CurrentLocationDot(),
-                    ),
-                  if (pickup != null)
-                    Marker(
-                      point: pickup.point,
-                      width: 48,
-                      height: 48,
-                      alignment: Alignment.bottomCenter,
-                      child: const _MapPin(
-                        color: Color(0xFF1DB173),
-                        icon: Icons.trip_origin,
-                        label: 'Pickup point',
-                      ),
-                    ),
-                  if (destination != null)
-                    Marker(
-                      point: destination.point,
-                      width: 48,
-                      height: 48,
-                      alignment: Alignment.bottomCenter,
-                      child: _MapPin(
-                        color: Theme.of(context).colorScheme.error,
-                        icon: Icons.location_pin,
-                        label: 'Destination',
-                      ),
-                    ),
-                ],
-              ),
+              MarkerLayer(markers: markers),
             ],
           ),
           Positioned(
@@ -390,7 +872,7 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
               },
             ),
           ),
-          if (riderId != null)
+          if (riderId != null && !showAssignedPanel)
             Positioned(
               left: AppSpacing.sm,
               right: AppSpacing.sm,
@@ -399,25 +881,37 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
             ),
           Positioned(
             right: AppSpacing.gutter,
-            bottom: 190,
-            child: FloatingActionButton.small(
-              heroTag: 'currentLocation',
-              onPressed: _currentLocation == null
-                  ? _startLocationTracking
-                  : () => _moveTo(_currentLocation!),
-              tooltip: _currentLocation == null
-                  ? 'Retry location'
-                  : 'Centre on my location',
-              child: Icon(
-                _currentLocation == null
-                    ? Icons.location_searching
-                    : Icons.my_location,
-              ),
+            bottom: showAssignedPanel ? 320 : 190,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                FloatingActionButton.small(
+                  heroTag: 'transitToggle',
+                  onPressed: _loadTransitStops,
+                  tooltip: 'Transit stops',
+                  child: const Icon(Icons.directions_transit),
+                ),
+                const SizedBox(height: 8),
+                FloatingActionButton.small(
+                  heroTag: 'currentLocation',
+                  onPressed: _currentLocation == null
+                      ? _startLocationTracking
+                      : () => _moveTo(_currentLocation!),
+                  tooltip: _currentLocation == null
+                      ? 'Retry location'
+                      : 'Centre on my location',
+                  child: Icon(
+                    _currentLocation == null
+                        ? Icons.location_searching
+                        : Icons.my_location,
+                  ),
+                ),
+              ],
             ),
           ),
           Positioned(
             left: AppSpacing.base,
-            bottom: 176,
+            bottom: showAssignedPanel ? 310 : 176,
             child: DecoratedBox(
               decoration: BoxDecoration(
                 color: Theme.of(
@@ -434,19 +928,261 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
               ),
             ),
           ),
-          Positioned(
-            left: AppSpacing.sm,
-            right: AppSpacing.sm,
-            bottom: 30,
-            child: _TripSummaryPanel(
-              pickup: pickup,
-              destination: destination,
-              distanceMeters: distance,
-              isResolvingPin: _isResolvingPin,
-              onReviewTrip: _reviewTrip,
+          if (_transitStatus != _TransitStatus.idle)
+            Positioned(
+              right: AppSpacing.gutter,
+              top: 210,
+              child: _TransitBadge(
+                status: _transitStatus,
+                count: _nearbyStops.length,
+                error: _transitError,
+                onRetry: _loadTransitStops,
+              ),
+            ),
+          if (_nearby.isEmpty &&
+              phase == TripPlannerPhase.routePreview &&
+              _currentLocation != null)
+            Positioned(
+              left: AppSpacing.sm,
+              bottom: showAssignedPanel ? 320 : 190,
+              child: const _NoNearbyDriversBanner(),
+            ),
+          if (showAssignedPanel)
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: DriverAssignedPanel(
+                driver:
+                    _state.assignedDriver ??
+                    const AssignedDriverInfo(
+                      driverId: 'pending',
+                      name: 'Looking for driver',
+                      rating: 0,
+                      vehicleMake: '-',
+                      vehicleModel: '-',
+                      vehiclePlate: '-',
+                      vehicleColor: '-',
+                      etaMinutes: 0,
+                    ),
+                phase: phase,
+                cancelCountdownSeconds: _state.cancelCountdownSeconds,
+                canCancelForFree: _state.canCancelForFree,
+                onContactDriver: _state.assignedDriver != null
+                    ? () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => ChatWithDriverScreen(
+                              rideId: _state.activeRideId,
+                              title: 'Contact Driver',
+                            ),
+                          ),
+                        );
+                      }
+                    : null,
+                onCancelRide: _cancelActiveRide,
+                onTrackDriver: _state.assignedDriver?.exactLocation == null
+                    ? null
+                    : () => _moveTo(_state.assignedDriver!.exactLocation!),
+              ),
+            )
+          else
+            Positioned(
+              left: AppSpacing.sm,
+              right: AppSpacing.sm,
+              bottom: 30,
+              child: _TripSummaryPanel(
+                pickup: pickup,
+                destination: destination,
+                distanceMeters: distance,
+                route: route,
+                isLoadingRoute: _state.isLoadingRoute,
+                isResolvingPin: _isResolvingPin,
+                phase: phase,
+                onChooseVehicle: pickup != null && destination != null
+                    ? () {
+                        const opt = VehicleOption(
+                          id: 'economy_4',
+                          name: 'Economy',
+                          seats: 4,
+                          estimatedFareMin: 8.0,
+                          estimatedFareMax: 12.0,
+                        );
+                        _state.selectVehicle(opt);
+                      }
+                    : null,
+                onReviewTrip: _reviewTrip,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _NearbyVehiclePin extends StatelessWidget {
+  const _NearbyVehiclePin();
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      label: 'Nearby available vehicle',
+      child: Container(
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.primary,
+          shape: BoxShape.circle,
+          border: Border.all(color: Colors.white, width: 2),
+          boxShadow: const [
+            BoxShadow(
+              color: Colors.black26,
+              blurRadius: 4,
+              offset: Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Icon(Icons.local_taxi, color: Colors.white, size: 16),
+      ),
+    );
+  }
+}
+
+class _TransitStopPin extends StatelessWidget {
+  const _TransitStopPin({required this.stop});
+
+  final NearbyTransitStop stop;
+
+  @override
+  Widget build(BuildContext context) {
+    final stale = stop.stop.isStale;
+    return Semantics(
+      label: 'Transit stop ${stop.stop.name}',
+      child: Tooltip(
+        message:
+            '${stop.stop.name} · ${stop.distanceLabel}${stale ? ' · Stale data' : ''}',
+        child: Container(
+          decoration: BoxDecoration(
+            color: stale
+                ? Theme.of(context).colorScheme.outlineVariant
+                : const Color(0xFF1F477B),
+            shape: BoxShape.rectangle,
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: Colors.white, width: 2),
+          ),
+          child: Icon(Icons.directions_transit, color: Colors.white, size: 16),
+        ),
+      ),
+    );
+  }
+}
+
+class _TransitBadge extends StatelessWidget {
+  const _TransitBadge({
+    required this.status,
+    required this.count,
+    this.error,
+    this.onRetry,
+  });
+
+  final _TransitStatus status;
+  final int count;
+  final String? error;
+  final VoidCallback? onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.sm,
+          vertical: AppSpacing.xs,
+        ),
+        child: switch (status) {
+          _TransitStatus.loading => const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+              SizedBox(width: AppSpacing.base),
+              Text('Loading stops…'),
+            ],
+          ),
+          _TransitStatus.empty => Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.info_outline, size: 16),
+              const SizedBox(width: AppSpacing.xs),
+              const Text('No official stops within 2 km'),
+              const SizedBox(width: AppSpacing.xs),
+              IconButton(
+                onPressed: onRetry,
+                tooltip: 'Retry',
+                icon: const Icon(Icons.refresh, size: 16),
+              ),
+            ],
+          ),
+          _TransitStatus.error => Tooltip(
+            message: error,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.error,
+                  size: 16,
+                  color: Theme.of(context).colorScheme.error,
+                ),
+                const SizedBox(width: AppSpacing.xs),
+                Text(
+                  'Stops unavailable',
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+                const SizedBox(width: AppSpacing.xs),
+                IconButton(
+                  onPressed: onRetry,
+                  tooltip: 'Retry',
+                  icon: const Icon(Icons.refresh, size: 16),
+                ),
+              ],
             ),
           ),
-        ],
+          _TransitStatus.data => Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.directions_transit, size: 16),
+              const SizedBox(width: AppSpacing.xs),
+              Text('$count nearby stops'),
+            ],
+          ),
+          _ => const SizedBox.shrink(),
+        },
+      ),
+    );
+  }
+}
+
+class _NoNearbyDriversBanner extends StatelessWidget {
+  const _NoNearbyDriversBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      color: Theme.of(context).colorScheme.surfaceContainerLowest,
+      child: const Padding(
+        padding: EdgeInsets.symmetric(
+          horizontal: AppSpacing.sm,
+          vertical: AppSpacing.xs,
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.info_outline, size: 16),
+            SizedBox(width: AppSpacing.base),
+            Flexible(child: Text('No nearby drivers at the moment.')),
+          ],
+        ),
       ),
     );
   }
@@ -664,14 +1400,10 @@ class _PlaceSearchSheetState extends State<_PlaceSearchSheet> {
         query,
         near: widget.near,
       );
-      if (!mounted || requestNumber != _requestNumber) {
-        return;
-      }
+      if (!mounted || requestNumber != _requestNumber) return;
       setState(() => _results = results);
     } on LocationSearchException catch (error) {
-      if (!mounted || requestNumber != _requestNumber) {
-        return;
-      }
+      if (!mounted || requestNumber != _requestNumber) return;
       setState(() {
         _results = const [];
         _error = error.message;
@@ -727,9 +1459,7 @@ class _PlaceSearchSheetState extends State<_PlaceSearchSheet> {
               onChanged: _onQueryChanged,
               onSubmitted: (value) {
                 _debounce?.cancel();
-                if (value.trim().length >= 3) {
-                  _search(value.trim());
-                }
+                if (value.trim().length >= 3) _search(value.trim());
               },
               decoration: InputDecoration(
                 hintText: widget.hint,
@@ -818,19 +1548,50 @@ class _TripSummaryPanel extends StatelessWidget {
     required this.pickup,
     required this.destination,
     required this.distanceMeters,
+    required this.route,
+    required this.isLoadingRoute,
     required this.isResolvingPin,
+    required this.phase,
+    required this.onChooseVehicle,
     required this.onReviewTrip,
   });
 
   final GeoPlace? pickup;
   final GeoPlace? destination;
   final double? distanceMeters;
+  final TripPlanRoute? route;
+  final bool isLoadingRoute;
   final bool isResolvingPin;
+  final TripPlannerPhase phase;
+  final VoidCallback? onChooseVehicle;
   final VoidCallback onReviewTrip;
 
   @override
   Widget build(BuildContext context) {
     final canContinue = pickup != null && destination != null;
+    final title = switch (phase) {
+      TripPlannerPhase.explore =>
+        pickup != null && destination != null
+            ? 'Route preview ready'
+            : 'Choose a destination',
+      TripPlannerPhase.routePreview => 'Review & choose vehicle',
+      TripPlannerPhase.vehicleOptions => 'Vehicle options',
+      TripPlannerPhase.pickupConfirmation => 'Confirming pickup',
+      _ => 'Trip in progress',
+    };
+    String sub;
+    if (isLoadingRoute) {
+      sub = 'Computing route…';
+    } else if (isResolvingPin) {
+      sub = 'Finding address…';
+    } else if (route != null) {
+      sub = '${route!.distanceText} · ETA ${route!.etaText} (real road)';
+    } else if (distanceMeters == null) {
+      sub = 'Search above or tap the map to place a pin.';
+    } else {
+      sub =
+          '${(distanceMeters! / 1000).toStringAsFixed(2)} km straight-line preview';
+    }
     return Card(
       elevation: 3,
       child: Padding(
@@ -842,27 +1603,23 @@ class _TripSummaryPanel extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    canContinue ? 'Trip ready' : 'Choose a destination',
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
+                  Text(title, style: Theme.of(context).textTheme.titleMedium),
                   const SizedBox(height: AppSpacing.xs),
-                  Text(
-                    isResolvingPin
-                        ? 'Finding address…'
-                        : distanceMeters == null
-                        ? 'Search above or tap the map to place a pin.'
-                        : '${(distanceMeters! / 1000).toStringAsFixed(2)} km straight-line preview',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
+                  Text(sub, style: Theme.of(context).textTheme.bodySmall),
                 ],
               ),
             ),
             const SizedBox(width: AppSpacing.sm),
-            ElevatedButton(
-              onPressed: canContinue ? onReviewTrip : null,
-              child: const Text('Review'),
-            ),
+            phase == TripPlannerPhase.routePreview
+                ? ElevatedButton.icon(
+                    onPressed: onChooseVehicle,
+                    icon: const Icon(Icons.local_taxi, size: 18),
+                    label: const Text('Choose'),
+                  )
+                : ElevatedButton(
+                    onPressed: canContinue ? onReviewTrip : null,
+                    child: const Text('Review'),
+                  ),
           ],
         ),
       ),
@@ -930,10 +1687,7 @@ class _ActiveRidePanel extends StatelessWidget {
           .eq('rider_id', riderId)
           .order('created_at'),
       builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          return const SizedBox.shrink();
-        }
-
+        if (snapshot.hasError) return const SizedBox.shrink();
         final rides = (snapshot.data ?? [])
             .map(Ride.fromJson)
             .where(
@@ -941,13 +1695,12 @@ class _ActiveRidePanel extends StatelessWidget {
                   ride.status != 'completed' && ride.status != 'cancelled',
             )
             .toList();
-        if (rides.isEmpty) {
-          return const SizedBox.shrink();
-        }
-
+        if (rides.isEmpty) return const SizedBox.shrink();
         final activeRide = rides.last;
         final canChat =
-            activeRide.status == 'matched' || activeRide.status == 'en_route';
+            activeRide.driverId != null &&
+            (activeRide.status == 'driver_assigned' ||
+                activeRide.status == 'en_route');
         return Card(
           child: ListTile(
             dense: true,

@@ -54,7 +54,7 @@ class _ChatWithDriverScreenState extends State<ChatWithDriverScreen> {
             .from('rides')
             .select()
             .or('rider_id.eq.$userId,driver_id.eq.$userId')
-            .inFilter('status', ['matched', 'en_route'])
+            .inFilter('status', ['driver_assigned', 'en_route'])
             .order('created_at', ascending: false)
             .limit(1);
         if (data.isNotEmpty) {
@@ -83,7 +83,11 @@ class _ChatWithDriverScreenState extends State<ChatWithDriverScreen> {
   Future<void> _sendMessage() async {
     final body = _messageController.text.trim();
     final ride = _activeRide;
-    if (body.isEmpty || ride == null || _isSending) {
+    if (body.isEmpty ||
+        ride == null ||
+        ride.driverId == null ||
+        !_isWritableStatus(ride.status) ||
+        _isSending) {
       return;
     }
 
@@ -146,7 +150,7 @@ class _ChatWithDriverScreenState extends State<ChatWithDriverScreen> {
               buttonLabel: 'Retry',
               onPressed: _loadActiveRide,
             )
-          : ride == null
+          : ride == null || ride.driverId == null
           ? _ChatUnavailable(
               icon: Icons.forum_outlined,
               message:
@@ -158,15 +162,30 @@ class _ChatWithDriverScreenState extends State<ChatWithDriverScreen> {
               children: [
                 _RideHeader(ride: ride),
                 Expanded(child: _buildMessageList(ride)),
-                _MessageComposer(
-                  controller: _messageController,
-                  isSending: _isSending,
-                  onSend: _sendMessage,
-                ),
+                if (_isWritableStatus(ride.status))
+                  _MessageComposer(
+                    controller: _messageController,
+                    isSending: _isSending,
+                    onSend: _sendMessage,
+                  )
+                else
+                  const SafeArea(
+                    top: false,
+                    child: Padding(
+                      padding: EdgeInsets.all(AppSpacing.gutter),
+                      child: Text(
+                        'This conversation is read-only because the ride has ended.',
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ),
               ],
             ),
     );
   }
+
+  bool _isWritableStatus(String status) =>
+      status == 'driver_assigned' || status == 'en_route';
 
   Widget _buildMessageList(Ride ride) {
     final currentUserId = supabase.auth.currentUser!.id;
