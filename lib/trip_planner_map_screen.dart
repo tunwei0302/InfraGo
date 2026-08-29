@@ -9,9 +9,14 @@ import 'app_theme.dart';
 import 'booking_form_screen.dart';
 import 'carpool_matcher.dart';
 import 'chat_with_driver_screen.dart';
+import 'checkout_sheet.dart';
 import 'driver_assigned_panel.dart';
+import 'fare_estimator.dart';
+import 'fare_quote_repository.dart';
 import 'location_search_service.dart';
 import 'osrm_routing_service.dart';
+import 'payment_method.dart';
+import 'payment_repository.dart';
 import 'pickup_confirmation_sheet.dart';
 import 'ride.dart';
 import 'shared_route_markers.dart';
@@ -75,7 +80,11 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
   late final TripPlannerRepository _tripRepository;
   late final SupabaseCarpoolService _carpoolService;
   late final TransitStopRepository _transitRepository;
+  late final FareQuoteRepository _fareQuoteRepository;
+  late final PaymentRepository _paymentRepository;
   String _presenceCategory = 'economy_4';
+  PaymentMethod? _selectedPaymentMethod;
+  FareQuote? _pendingFareQuote;
 
   @override
   void initState() {
@@ -85,6 +94,8 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
     _state.onRequestSubmitted(_handleRequestSubmitted);
     _state.onCancelRequested(_handleCancelled);
     _tripRepository = SupabaseTripPlannerRepository(supabase);
+    _fareQuoteRepository = FareQuoteRepository(supabase);
+    _paymentRepository = PaymentRepository(supabase);
     _carpoolService = SupabaseCarpoolService(
       client: supabase,
       matcher: CarpoolMatcher(routing: OsrmCarpoolRouting(_routing)),
@@ -131,35 +142,88 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
     final vehicle = _state.selectedVehicle;
     final route = _state.route;
     final userId = supabase.auth.currentUser?.id;
+    final paymentMethod = _selectedPaymentMethod;
+    final quote = _pendingFareQuote;
     if (pickup == null ||
         destination == null ||
         vehicle == null ||
         route == null ||
-        userId == null) {
+        userId == null ||
+        paymentMethod == null ||
+        quote == null) {
       throw const TripPlannerRepositoryException(
-        'Sign in and complete the trip before requesting a ride.',
+        'Sign in and complete the trip and checkout before requesting a ride.',
       );
     }
-    final rideId = await _tripRepository.createRide(
-      RideDraft(
-        riderId: userId,
-        pickupLabel: pickup.bookingLabel,
-        destinationLabel: destination.bookingLabel,
-        pickup: pickup.point,
-        destination: destination.point,
-        serviceType: _databaseServiceType(vehicle),
-        passengerCount: _state.passengerCount,
-        departureTime: _state.effectiveDeparture,
-        routeDistanceMeters: route.distanceMeters,
-        routeDurationSeconds: route.durationSeconds,
-        pickupNote: _state.pickupNote,
-        estimatedSoloFare: vehicle.isShared ? null : vehicle.estimatedFareMin,
-        estimatedSharedFare: vehicle.isShared ? vehicle.estimatedFareMin : null,
+    try {
+      final rideId = await _tripRepository.createRide(
+        RideDraft(
+          riderId: userId,
+          pickupLabel: pickup.bookingLabel,
+          destinationLabel: destination.bookingLabel,
+          pickup: pickup.point,
+          destination: destination.point,
+          serviceType: _databaseServiceType(vehicle),
+          passengerCount: _state.passengerCount,
+          departureTime: _state.effectiveDeparture,
+          routeDistanceMeters: route.distanceMeters,
+          routeDurationSeconds: route.durationSeconds,
+          pickupNote: _state.pickupNote,
+          estimatedSoloFare: vehicle.isShared ? null : quote.amount,
+          estimatedSharedFare: vehicle.isShared ? quote.amount : null,
+        ),
+      );
+      await _fareQuoteRepository.saveQuote(rideId: rideId, quote: quote);
+      await _paymentRepository.createPayment(
+        rideId: rideId,
+        method: paymentMethod,
+      );
+      _state.setActiveRideId(rideId);
+      _watchRide(rideId);
+      if (vehicle.isShared) unawaited(_trySharedMatch(rideId));
+    } finally {
+      _selectedPaymentMethod = null;
+      _pendingFareQuote = null;
+    }
+  }
+
+  List<VehicleOption> _vehicleOptionsForRoute(TripPlanRoute? route) {
+    FareQuote? quoteFor(FareServiceType type) => route == null
+        ? null
+        : FareEstimator.quote(
+            serviceType: type,
+            distanceMeters: route.distanceMeters,
+            durationSeconds: route.durationSeconds,
+          );
+
+    final economy = quoteFor(FareServiceType.economy4);
+    final shared = quoteFor(FareServiceType.sharedEconomy);
+    final sixSeater = quoteFor(FareServiceType.sixSeater);
+
+    return [
+      VehicleOption(
+        id: 'economy_4',
+        name: 'Economy',
+        seats: 4,
+        estimatedFareMin: economy?.amount,
+        estimatedFareMax: economy?.amount,
       ),
-    );
-    _state.setActiveRideId(rideId);
-    _watchRide(rideId);
-    if (vehicle.isShared) unawaited(_trySharedMatch(rideId));
+      VehicleOption(
+        id: 'shared_economy',
+        name: 'Shared Economy',
+        seats: 4,
+        isShared: true,
+        estimatedFareMin: shared?.amount,
+        estimatedFareMax: shared?.amount,
+      ),
+      VehicleOption(
+        id: 'six_seater',
+        name: 'SUV / 6-seater',
+        seats: 6,
+        estimatedFareMin: sixSeater?.amount,
+        estimatedFareMax: sixSeater?.amount,
+      ),
+    ];
   }
 
   String _databaseServiceType(VehicleOption vehicle) {
@@ -263,7 +327,11 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
     );
     try {
       final matches = await _carpoolService.findMatches(request);
-      if (!mounted || matches.isEmpty || _state.activeRideId != rideId) return;
+      if (!mounted || _state.activeRideId != rideId) return;
+      if (matches.isEmpty) {
+        await _offerSharedNoMatchChoice(rideId);
+        return;
+      }
       final match = matches.first;
       final accepted = await showModalBottomSheet<bool>(
         context: context,
@@ -291,6 +359,58 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Shared matching is still searching: $error')),
+      );
+    }
+  }
+
+  Future<void> _offerSharedNoMatchChoice(String rideId) async {
+    if (!mounted) return;
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('No shared match yet'),
+        content: const Text(
+          'No other rider matched this trip yet. Continue alone at the '
+          'solo Economy fare, or cancel for free while still searching.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, 'wait'),
+            child: const Text('Keep waiting'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, 'cancel'),
+            child: const Text('Cancel ride'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, 'solo'),
+            child: const Text('Continue solo'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || choice == null || choice == 'wait') return;
+    if (choice == 'cancel') {
+      await _cancelActiveRide();
+      return;
+    }
+    await _continueSharedRideSolo(rideId);
+  }
+
+  Future<void> _continueSharedRideSolo(String rideId) async {
+    try {
+      await supabase
+          .from('rides')
+          .update({'service_type': 'economy_4', 'status': 'requested'})
+          .eq('id', rideId);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Continuing solo at the Economy fare.')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not switch to solo: $error')),
       );
     }
   }
@@ -536,30 +656,7 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
 
   Future<void> _openVehicleOptionsSheet() async {
     final route = _state.route;
-    final options = [
-      const VehicleOption(
-        id: 'economy_4',
-        name: 'Economy',
-        seats: 4,
-        estimatedFareMin: 8.0,
-        estimatedFareMax: 12.0,
-      ),
-      const VehicleOption(
-        id: 'shared_economy',
-        name: 'Shared Economy',
-        seats: 4,
-        estimatedFareMin: 5.0,
-        estimatedFareMax: 8.0,
-        isShared: true,
-      ),
-      const VehicleOption(
-        id: 'six_seater',
-        name: 'SUV / 6-seater',
-        seats: 6,
-        estimatedFareMin: 18.0,
-        estimatedFareMax: 26.0,
-      ),
-    ];
+    final options = _vehicleOptionsForRoute(route);
     if (!mounted) return;
     final summary = route == null
         ? null
@@ -607,18 +704,39 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
       scheduledDeparture: _state.scheduledDeparture,
     );
     if (!mounted) return;
-    if (confirmation != null) {
-      _state.setPickupNote(confirmation.pickupNote);
-      final ok = await _state.submitRideRequest();
-      if (ok) {
-        _focusSelectedPlaces(pickup.point);
-      } else if (mounted && _state.errorMessage != null) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(_state.errorMessage!)));
-      }
-    } else if (_state.phase == TripPlannerPhase.pickupConfirmation) {
-      _state.goBack();
+    if (confirmation == null) {
+      if (_state.phase == TripPlannerPhase.pickupConfirmation) _state.goBack();
+      return;
+    }
+    _state.setPickupNote(confirmation.pickupNote);
+
+    final quote = FareEstimator.quote(
+      serviceType: FareServiceType.fromDbValue(_databaseServiceType(vehicle)),
+      distanceMeters: route.distanceMeters,
+      durationSeconds: route.durationSeconds,
+    );
+    if (!mounted) return;
+    final method = await CheckoutSheet.show(
+      context,
+      amount: quote.amount,
+      currency: quote.currency,
+      paymentRepository: _paymentRepository,
+    );
+    if (!mounted) return;
+    if (method == null) {
+      if (_state.phase == TripPlannerPhase.pickupConfirmation) _state.goBack();
+      return;
+    }
+    _selectedPaymentMethod = method;
+    _pendingFareQuote = quote;
+
+    final ok = await _state.submitRideRequest();
+    if (ok) {
+      _focusSelectedPlaces(pickup.point);
+    } else if (mounted && _state.errorMessage != null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(_state.errorMessage!)));
     }
   }
 
@@ -1003,16 +1121,9 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
                 isResolvingPin: _isResolvingPin,
                 phase: phase,
                 onChooseVehicle: pickup != null && destination != null
-                    ? () {
-                        const opt = VehicleOption(
-                          id: 'economy_4',
-                          name: 'Economy',
-                          seats: 4,
-                          estimatedFareMin: 8.0,
-                          estimatedFareMax: 12.0,
-                        );
-                        _state.selectVehicle(opt);
-                      }
+                    ? () => _state.selectVehicle(
+                        _vehicleOptionsForRoute(route).first,
+                      )
                     : null,
                 onReviewTrip: _reviewTrip,
               ),
