@@ -70,6 +70,7 @@ class _AvailableOrdersScreenState extends State<AvailableOrdersScreen> {
 
   String _friendlyReason(String? reason) => switch (reason) {
     'driver_not_ready' => 'Complete approval before accepting rides.',
+    'driver_not_online' => 'Go online from Driver Hub before accepting rides.',
     'vehicle_capacity_incompatible' =>
       'Your registered vehicle is too small for this order.',
     'ride_not_available' ||

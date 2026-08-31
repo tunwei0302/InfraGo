@@ -48,12 +48,38 @@ void main() {
     );
     final function = sql.substring(start, end);
     expect(function, contains('FOR UPDATE'));
+    expect(function, contains("'driver_not_online'"));
+    expect(
+      function,
+      contains("presence.last_seen_at >= now() - INTERVAL '30 seconds'"),
+    );
     expect(function, contains("v_ride.status != 'requested'"));
     expect(
       function,
       contains('v_vehicle.passenger_capacity < v_ride.passenger_count'),
     );
     expect(function, contains("status = 'driver_assigned'"));
+  });
+
+  test('assigned passenger vehicle view excludes private documents', () {
+    final start = sql.indexOf('CREATE OR REPLACE VIEW driver_public_profiles');
+    final end = sql.indexOf(
+      'CREATE OR REPLACE FUNCTION set_my_driver_offline',
+      start,
+    );
+    final view = sql.substring(start, end);
+    expect(
+      view,
+      contains("assigned.status IN ('driver_assigned', 'en_route')"),
+    );
+    expect(view, contains('assigned.rider_id = auth.uid()'));
+    expect(view, contains('car.plate_number'));
+    expect(view, isNot(contains('licence_path')));
+    expect(view, isNot(contains('selfie_path')));
+    expect(
+      sql,
+      contains('GRANT SELECT ON driver_public_profiles TO authenticated'),
+    );
   });
 
   test(

@@ -166,6 +166,34 @@ AS $$
   LEFT JOIN driver_vehicles car ON car.driver_id = me.driver_id;
 $$;
 
+-- Assigned passengers may see only the approved vehicle that is serving
+-- their own active ride. This deliberately excludes licence/selfie paths,
+-- contact details, reviewer data and every unassigned driver.
+CREATE OR REPLACE VIEW driver_public_profiles
+WITH (security_barrier = true)
+AS
+SELECT DISTINCT
+  car.driver_id,
+  verification.display_name AS name,
+  car.make AS vehicle_make,
+  car.model AS vehicle_model,
+  car.color AS vehicle_color,
+  car.body_type,
+  car.plate_number,
+  car.passenger_capacity
+FROM driver_vehicles car
+JOIN driver_verifications verification
+  ON verification.driver_id = car.driver_id
+JOIN rides assigned
+  ON assigned.driver_id = car.driver_id
+WHERE car.approval_status = 'approved'
+  AND verification.approval_status = 'approved'
+  AND assigned.status IN ('driver_assigned', 'en_route')
+  AND (assigned.rider_id = auth.uid() OR car.driver_id = auth.uid());
+
+REVOKE ALL ON driver_public_profiles FROM anon, authenticated;
+GRANT SELECT ON driver_public_profiles TO authenticated;
+
 CREATE OR REPLACE FUNCTION set_my_driver_offline()
 RETURNS VOID
 LANGUAGE plpgsql
@@ -291,6 +319,15 @@ BEGIN
      OR v_vehicle.driver_id IS NULL OR v_vehicle.approval_status != 'approved' THEN
     RETURN jsonb_build_object('success', FALSE, 'reason', 'driver_not_ready');
   END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM driver_presence presence
+    WHERE presence.driver_id = auth.uid()
+      AND presence.is_online = TRUE
+      AND presence.is_assigned = FALSE
+      AND presence.last_seen_at >= now() - INTERVAL '30 seconds'
+  ) THEN
+    RETURN jsonb_build_object('success', FALSE, 'reason', 'driver_not_online');
+  END IF;
   SELECT * INTO v_ride FROM rides WHERE id = p_ride_id FOR UPDATE;
   IF v_ride.id IS NULL THEN RETURN jsonb_build_object('success', FALSE, 'reason', 'ride_not_found'); END IF;
   IF v_ride.driver_id IS NOT NULL OR v_ride.status != 'requested' OR v_ride.group_id IS NOT NULL THEN
@@ -327,6 +364,15 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM driver_verifications WHERE driver_id = auth.uid() AND approval_status = 'approved')
      OR v_vehicle.driver_id IS NULL OR v_vehicle.approval_status != 'approved' THEN
     RETURN jsonb_build_object('success', FALSE, 'reason', 'driver_not_ready');
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM driver_presence presence
+    WHERE presence.driver_id = auth.uid()
+      AND presence.is_online = TRUE
+      AND presence.is_assigned = FALSE
+      AND presence.last_seen_at >= now() - INTERVAL '30 seconds'
+  ) THEN
+    RETURN jsonb_build_object('success', FALSE, 'reason', 'driver_not_online');
   END IF;
   SELECT * INTO v_group FROM ride_groups WHERE id = p_group_id FOR UPDATE;
   IF v_group.id IS NULL THEN RETURN jsonb_build_object('success', FALSE, 'reason', 'group_not_found'); END IF;
