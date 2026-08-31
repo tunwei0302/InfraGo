@@ -11,6 +11,7 @@ class ChatWithDriverScreen extends StatefulWidget {
     this.rideId,
     this.title = 'Chat with Driver',
     this.quickReplies = const <String>[],
+    this.isDriverView = false,
   });
 
   final String? rideId;
@@ -19,6 +20,10 @@ class ChatWithDriverScreen extends StatefulWidget {
   /// Optional one-tap messages rendered above the composer (used by the
   /// driver inbox; riders keep the plain composer).
   final List<String> quickReplies;
+
+  /// This page is only opened for a particular assigned ride.  The driver
+  /// view changes the contact wording and enables driver status shortcuts.
+  final bool isDriverView;
 
   @override
   State<ChatWithDriverScreen> createState() => _ChatWithDriverScreenState();
@@ -171,12 +176,15 @@ class _ChatWithDriverScreenState extends State<ChatWithDriverScreen> {
             )
           : Column(
               children: [
-                _RideHeader(ride: ride),
+                _RideContactHeader(
+                  ride: ride,
+                  isDriverView: widget.isDriverView,
+                ),
                 Expanded(child: _buildMessageList(ride)),
                 if (_isWritableStatus(ride.status) &&
-                    widget.quickReplies.isNotEmpty)
+                    _quickReplies.isNotEmpty)
                   _QuickReplyBar(
-                    replies: widget.quickReplies,
+                    replies: _quickReplies,
                     isSending: _isSending,
                     onSend: (text) => _sendQuickReply(text),
                   ),
@@ -185,6 +193,9 @@ class _ChatWithDriverScreenState extends State<ChatWithDriverScreen> {
                     controller: _messageController,
                     isSending: _isSending,
                     onSend: _sendMessage,
+                    hintText: widget.isDriverView
+                        ? 'Message passenger'
+                        : 'Message driver',
                   )
                 else
                   const SafeArea(
@@ -204,6 +215,20 @@ class _ChatWithDriverScreenState extends State<ChatWithDriverScreen> {
 
   bool _isWritableStatus(String status) =>
       status == 'driver_assigned' || status == 'en_route';
+
+  List<String> get _quickReplies {
+    if (widget.quickReplies.isNotEmpty) return widget.quickReplies;
+    if (widget.isDriverView) {
+      return const [
+        'I’m on my way.',
+        'I have arrived at the pickup point.',
+      ];
+    }
+    return const [
+      'I’m at the pickup point.',
+      'I will be there shortly.',
+    ];
+  }
 
   Widget _buildMessageList(Ride ride) {
     final currentUserId = supabase.auth.currentUser!.id;
@@ -231,9 +256,11 @@ class _ChatWithDriverScreenState extends State<ChatWithDriverScreen> {
             .map(ChatMessage.fromJson)
             .toList();
         if (messages.isEmpty) {
-          return const _ChatUnavailable(
+          return _ChatUnavailable(
             icon: Icons.waving_hand_outlined,
-            message: 'No messages yet. Say hello to your driver.',
+            message: widget.isDriverView
+                ? 'No messages yet. Send the passenger a trip update.'
+                : 'No messages yet. Send your driver a quick update.',
           );
         }
 
@@ -249,6 +276,7 @@ class _ChatWithDriverScreenState extends State<ChatWithDriverScreen> {
             return _MessageBubble(
               message: message,
               isMine: message.senderId == currentUserId,
+              peerLabel: widget.isDriverView ? 'Passenger' : 'Driver',
             );
           },
         );
@@ -257,52 +285,92 @@ class _ChatWithDriverScreenState extends State<ChatWithDriverScreen> {
   }
 }
 
-class _RideHeader extends StatelessWidget {
-  const _RideHeader({required this.ride});
+class _RideContactHeader extends StatelessWidget {
+  const _RideContactHeader({
+    required this.ride,
+    required this.isDriverView,
+  });
 
   final Ride ride;
+  final bool isDriverView;
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Theme.of(context).colorScheme.surfaceContainerLow,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.marginMobile,
-          vertical: AppSpacing.sm,
-        ),
-        child: Row(
-          children: [
-            const Icon(Icons.route),
-            const SizedBox(width: AppSpacing.sm),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    '${ride.pickup} → ${ride.destination}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  Text(
-                    ride.status.replaceAll('_', ' '),
-                    style: AppTextStyles.labelCaps,
-                  ),
-                ],
+    final colorScheme = Theme.of(context).colorScheme;
+    final peer = isDriverView ? 'Passenger' : 'Driver';
+    final status = switch (ride.status) {
+      'driver_assigned' => 'Driver assigned',
+      'en_route' => 'Trip in progress',
+      _ => ride.status.replaceAll('_', ' '),
+    };
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(
+        AppSpacing.marginMobile,
+        AppSpacing.base,
+        AppSpacing.marginMobile,
+        0,
+      ),
+      padding: const EdgeInsets.all(AppSpacing.gutter),
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+      ),
+      child: Row(
+        children: [
+          CircleAvatar(
+            backgroundColor: colorScheme.primaryContainer,
+            foregroundColor: colorScheme.onPrimaryContainer,
+            child: Icon(isDriverView ? Icons.person_outline : Icons.local_taxi),
+          ),
+          const SizedBox(width: AppSpacing.gutter),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(peer, style: Theme.of(context).textTheme.titleSmall),
+                const SizedBox(height: AppSpacing.xs),
+                Text(
+                  '${ride.pickup} → ${ride.destination}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.sm,
+              vertical: AppSpacing.xs,
+            ),
+            decoration: BoxDecoration(
+              color: colorScheme.secondaryContainer,
+              borderRadius: BorderRadius.circular(AppRadius.xl),
+            ),
+            child: Text(
+              status,
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: colorScheme.onSecondaryContainer,
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 }
 
 class _MessageBubble extends StatelessWidget {
-  const _MessageBubble({required this.message, required this.isMine});
+  const _MessageBubble({
+    required this.message,
+    required this.isMine,
+    required this.peerLabel,
+  });
 
   final ChatMessage message;
   final bool isMine;
+  final String peerLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -340,6 +408,13 @@ class _MessageBubble extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                Text(
+                  isMine ? 'You' : peerLabel,
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.xs),
                 Text(message.body),
                 if (time != null) ...[
                   const SizedBox(height: AppSpacing.xs),
@@ -396,11 +471,13 @@ class _MessageComposer extends StatelessWidget {
     required this.controller,
     required this.isSending,
     required this.onSend,
+    required this.hintText,
   });
 
   final TextEditingController controller;
   final bool isSending;
   final VoidCallback onSend;
+  final String hintText;
 
   @override
   Widget build(BuildContext context) {
@@ -418,8 +495,8 @@ class _MessageComposer extends StatelessWidget {
                   textCapitalization: TextCapitalization.sentences,
                   textInputAction: TextInputAction.send,
                   onSubmitted: (_) => onSend(),
-                  decoration: const InputDecoration(
-                    hintText: 'Message your driver',
+                  decoration: InputDecoration(
+                    hintText: hintText,
                   ),
                 ),
               ),

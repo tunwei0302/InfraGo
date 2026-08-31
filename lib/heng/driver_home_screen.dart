@@ -26,7 +26,6 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
   static const _pages = <Widget>[
     _DriverHubTab(),
     AvailableOrdersScreen(),
-    ChatWithDriverScreen(title: 'Chat with rider'),
     UserProfileScreen(),
   ];
 
@@ -39,7 +38,6 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
       items: const [
         BottomNavigationBarItem(icon: Icon(Icons.local_taxi), label: 'Hub'),
         BottomNavigationBarItem(icon: Icon(Icons.list_alt), label: 'Orders'),
-        BottomNavigationBarItem(icon: Icon(Icons.chat), label: 'Chat'),
         BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Profile'),
       ],
     ),
@@ -331,7 +329,13 @@ class _DriverHubTabState extends State<_DriverHubTab> {
                         MaterialPageRoute(
                           builder: (_) => ChatWithDriverScreen(
                             rideId: ride['id'].toString(),
-                            title: 'Chat with rider',
+                            title: 'Message passenger',
+                            isDriverView: true,
+                            quickReplies: const [
+                              'I’m on my way.',
+                              'I have arrived at the pickup point.',
+                              'Please meet me at the pickup point.',
+                            ],
                           ),
                         ),
                       ),
