@@ -2,20 +2,27 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
-// Guard for the Kueh/Heng boundary: rider chat opens only when a ride is
-// driver_assigned, so any acceptance path that writes a different status
-// silently breaks Contact Driver for passengers.
 void main() {
-  test('solo acceptance writes driver_id with the driver_assigned status', () {
-    final source = File('lib/heng/available_orders_screen.dart').readAsStringSync();
-    final acceptStart = source.indexOf('Future<void> _acceptRide');
-    final buildStart = source.indexOf('@override', acceptStart);
-    final acceptMethod = source.substring(acceptStart, buildStart);
-    expect(
-      acceptMethod,
-      contains("'driver_id': supabase.auth.currentUser!.id"),
-    );
-    expect(acceptMethod, contains("'status': 'driver_assigned'"));
-    expect(acceptMethod, isNot(contains("'accepted'")));
+  test('solo and shared acceptance use conditional database RPCs', () {
+    final screen = File(
+      'lib/heng/available_orders_screen.dart',
+    ).readAsStringSync();
+    final repository = File(
+      'lib/heng/driver_repository.dart',
+    ).readAsStringSync();
+    expect(screen, contains('await _repository.acceptRide'));
+    expect(screen, contains('await _repository.acceptGroup'));
+    expect(screen, isNot(contains(".update({'driver_id'")));
+    expect(repository, contains("'accept_available_ride'"));
+    expect(repository, contains("'accept_carpool_group'"));
+  });
+
+  test('accepted ride opens the rider contact lifecycle', () {
+    final sql = File(
+      'supabase/migrations/20260902000000_h_driver_operations.sql',
+    ).readAsStringSync();
+    expect(sql, contains("status = 'driver_assigned'"));
+    expect(sql, contains('accepted_at = now()'));
+    expect(sql, contains("free_cancel_until = now() + INTERVAL '2 minutes'"));
   });
 }
