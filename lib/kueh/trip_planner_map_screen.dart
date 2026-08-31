@@ -7,7 +7,6 @@ import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 
 import 'package:infra_go/shared/app_theme.dart';
-import 'package:infra_go/foo/booking_form_screen.dart';
 import 'package:infra_go/kueh/carpool_matcher.dart';
 import 'package:infra_go/kueh/chat_with_driver_screen.dart';
 import 'package:infra_go/foo/cancellation_policy.dart';
@@ -22,7 +21,6 @@ import 'package:infra_go/foo/payment_repository.dart';
 import 'package:infra_go/kueh/pickup_confirmation_sheet.dart';
 import 'package:infra_go/foo/pickup_landmark_service.dart';
 import 'package:infra_go/foo/receipt_screen.dart';
-import 'package:infra_go/shared/ride.dart';
 import 'package:infra_go/foo/ride_booking_repository.dart';
 import 'package:infra_go/tey/rewards_repository.dart';
 import 'package:infra_go/kueh/shared_route_markers.dart';
@@ -67,6 +65,7 @@ class TripPlannerMapScreen extends StatefulWidget {
 
 class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
   final MapController _mapController = MapController();
+  final Set<String> _handledCompletedRideIds = <String>{};
   final PhotonLocationSearchService _locationSearch =
       PhotonLocationSearchService();
   final OsrmRoutingService _routing = OsrmRoutingService();
@@ -88,6 +87,7 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
   List<CoarseVehicle> _nearby = const [];
   _TransitStatus _transitStatus = _TransitStatus.idle;
   List<NearbyTransitStop> _nearbyStops = const [];
+  NearbyTransitStop? _selectedTransitStop;
   String? _transitError;
   CarpoolMatch? _currentMatch;
   late final TripPlannerRepository _tripRepository;
@@ -168,6 +168,7 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
     final route = _state.route;
     final userId = supabase.auth.currentUser?.id;
     final paymentMethod = _selectedPaymentMethod;
+    final transitStop = vehicle?.isShared == true ? _selectedTransitStop : null;
     if (pickup == null ||
         destination == null ||
         vehicle == null ||
@@ -180,22 +181,23 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
     }
     final landmarkPhoto = _pendingLandmarkPhoto;
     try {
-      final result = await _rideBookingRepository
-          .createRideWithQuoteAndPayment(
-            pickupLabel: pickup.bookingLabel,
-            destinationLabel: destination.bookingLabel,
-            pickup: pickup.point,
-            destination: destination.point,
-            serviceType: _databaseServiceType(vehicle),
-            passengerCount: _state.passengerCount,
-            departureTime: _state.effectiveDeparture,
-            routeDistanceMeters: route.distanceMeters,
-            routeDurationSeconds: route.durationSeconds,
-            pickupNote: _state.pickupNote,
-            paymentMethod: paymentMethod,
-            clientRequestId: _generateClientRequestId(),
-            rewardPointsToRedeem: _selectedRewardPoints,
-          );
+      final result = await _rideBookingRepository.createRideWithQuoteAndPayment(
+        pickupLabel: pickup.bookingLabel,
+        destinationLabel: destination.bookingLabel,
+        pickup: pickup.point,
+        destination: destination.point,
+        serviceType: _databaseServiceType(vehicle),
+        passengerCount: _state.passengerCount,
+        departureTime: _state.effectiveDeparture,
+        routeDistanceMeters: route.distanceMeters,
+        routeDurationSeconds: route.durationSeconds,
+        pickupNote: _state.pickupNote,
+        transitStopId: transitStop?.stop.id,
+        transitStopName: transitStop?.stop.name,
+        paymentMethod: paymentMethod,
+        clientRequestId: _generateClientRequestId(),
+        rewardPointsToRedeem: _selectedRewardPoints,
+      );
       if (landmarkPhoto != null) {
         await _uploadLandmarkPhoto(userId, result.rideId, landmarkPhoto);
       }
@@ -321,6 +323,7 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
                 }
                 _state.markEnRoute();
               case 'completed':
+                if (!_handledCompletedRideIds.add(rideId)) return;
                 _state.markCompleted();
                 Navigator.push(
                   context,
@@ -391,6 +394,7 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
       destination: destination.point,
       departAt: _state.effectiveDeparture,
       passengers: _state.passengerCount,
+      nearestTransitStopId: _selectedTransitStop?.stop.id,
     );
     try {
       final matches = await _carpoolService.findMatches(request);
@@ -466,13 +470,15 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
 
   Future<void> _continueSharedRideSolo(String rideId) async {
     try {
-      await supabase
-          .from('rides')
-          .update({'service_type': 'economy_4', 'status': 'requested'})
-          .eq('id', rideId);
+      final result = await _paymentRepository.convertSharedRideToSolo(rideId);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Continuing solo at the Economy fare.')),
+        SnackBar(
+          content: Text(
+            'Continuing solo at the Economy fare · '
+            'RM${(result['amount'] as num).toStringAsFixed(2)}.',
+          ),
+        ),
       );
     } catch (error) {
       if (!mounted) return;
@@ -751,6 +757,7 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
       return;
     }
     final place = GeoPlace.coordinate(point, name: 'Current location');
+    _clearTransitSelection();
     _state.setPickup(place);
     setState(() => _mapEditTarget = _MapEditTarget.destination);
     _moveTo(point);
@@ -761,6 +768,7 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
     final target = _mapEditTarget;
     final place = GeoPlace.coordinate(point);
     if (target == _MapEditTarget.pickup) {
+      _clearTransitSelection();
       _state.setPickup(place);
     } else {
       _state.setDestination(place);
@@ -814,6 +822,7 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
     );
     if (place == null || !mounted) return;
     if (target == _MapEditTarget.pickup) {
+      _clearTransitSelection();
       _state.setPickup(place);
       setState(() => _mapEditTarget = _MapEditTarget.destination);
     } else {
@@ -871,6 +880,9 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
       route: route,
       passengerCount: _state.passengerCount,
       scheduledDeparture: _state.scheduledDeparture,
+      transitStopName: vehicle.isShared
+          ? _selectedTransitStop?.stop.name
+          : null,
     );
     if (!mounted) return;
     if (confirmation == null) {
@@ -916,26 +928,8 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
     }
   }
 
-  void _reviewTrip() {
-    final pickup = _state.pickup;
-    final destination = _state.destination;
-    if (pickup == null || destination == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Choose pickup and destination first.')),
-      );
-      return;
-    }
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) =>
-            TripPlanReviewScreen(pickup: pickup, destination: destination),
-      ),
-    );
-  }
-
   Future<void> _loadTransitStops() async {
-    final center = _currentLocation ?? _state.pickup?.point;
+    final center = _state.pickup?.point ?? _currentLocation;
     if (center == null) return;
     setState(() {
       _transitStatus = _TransitStatus.loading;
@@ -950,6 +944,11 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
       if (!mounted) return;
       setState(() {
         _nearbyStops = result;
+        final selectedId = _selectedTransitStop?.stop.id;
+        if (selectedId != null &&
+            !result.any((item) => item.stop.id == selectedId)) {
+          _selectedTransitStop = null;
+        }
         _transitStatus = result.isEmpty
             ? _TransitStatus.empty
             : _TransitStatus.data;
@@ -963,9 +962,79 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
     }
   }
 
+  void _clearTransitSelection() {
+    if (_selectedTransitStop == null || !mounted) return;
+    setState(() => _selectedTransitStop = null);
+  }
+
+  void _resetPlanner() {
+    _clearTransitSelection();
+    _state.resetToExplore(keepPickup: _state.pickup);
+  }
+
+  Future<void> _openTransitStopDetails(NearbyTransitStop stop) async {
+    if (_state.phase.index >= TripPlannerPhase.searchingDriver.index) return;
+    final alreadySelected = _selectedTransitStop?.stop.id == stop.stop.id;
+    final updated = stop.stop.lastUpdated?.toLocal();
+    final updatedLabel = updated == null
+        ? 'Update time unavailable'
+        : '${updated.year}-${updated.month.toString().padLeft(2, '0')}-'
+              '${updated.day.toString().padLeft(2, '0')} '
+              '${updated.hour.toString().padLeft(2, '0')}:'
+              '${updated.minute.toString().padLeft(2, '0')}';
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      useSafeArea: true,
+      builder: (context) => Padding(
+        padding: const EdgeInsets.all(AppSpacing.gutter),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(stop.stop.name, style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: AppSpacing.xs),
+            Text('${stop.distanceLabel} from pickup'),
+            if (stop.stop.route != null) Text('Route: ${stop.stop.route}'),
+            const SizedBox(height: AppSpacing.md),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.dataset_outlined),
+              title: Text(stop.stop.source ?? 'Official GTFS stop data'),
+              subtitle: Text(
+                '$updatedLabel${stop.stop.isStale ? ' · data may be stale' : ''}',
+              ),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            FilledButton.icon(
+              onPressed: () =>
+                  Navigator.pop(context, alreadySelected ? 'remove' : 'select'),
+              icon: Icon(alreadySelected ? Icons.close : Icons.add_road),
+              label: Text(
+                alreadySelected
+                    ? 'Remove transit connection'
+                    : 'Use as Shared Ride connection',
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || action == null) return;
+    setState(() => _selectedTransitStop = action == 'select' ? stop : null);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          action == 'remove'
+              ? 'Transit connection removed.'
+              : '${stop.stop.name} selected for a Shared Economy connection.',
+        ),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final riderId = supabase.auth.currentUser?.id;
     final phase = _state.phase;
     final pickup = _state.pickup;
     final destination = _state.destination;
@@ -1076,7 +1145,11 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
             width: 36,
             height: 36,
             alignment: Alignment.bottomCenter,
-            child: _TransitStopPin(stop: s),
+            child: _TransitStopPin(
+              stop: s,
+              selected: _selectedTransitStop?.stop.id == s.stop.id,
+              onTap: () => unawaited(_openTransitStopDetails(s)),
+            ),
           ),
         );
       }
@@ -1086,30 +1159,15 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
         phase == TripPlannerPhase.searchingDriver ||
         phase == TripPlannerPhase.driverAssigned ||
         phase == TripPlannerPhase.enRoute;
+    final safeTop = MediaQuery.paddingOf(context).top;
+    final showReset =
+        destination != null ||
+        phase == TripPlannerPhase.completed ||
+        phase == TripPlannerPhase.cancelled;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Plan a ride'),
-        actions: [
-          IconButton(
-            onPressed: _loadTransitStops,
-            tooltip: 'Show nearby stops',
-            icon: const Icon(Icons.directions_transit),
-          ),
-          if (phase.index >= TripPlannerPhase.routePreview.index &&
-                  phase.index < TripPlannerPhase.searchingDriver.index ||
-              phase == TripPlannerPhase.completed ||
-              phase == TripPlannerPhase.cancelled)
-            IconButton(
-              onPressed: () {
-                _state.resetToExplore(keepPickup: _state.pickup);
-              },
-              tooltip: 'Start over',
-              icon: const Icon(Icons.refresh),
-            ),
-        ],
-      ),
       body: Stack(
+        fit: StackFit.expand,
         children: [
           FlutterMap(
             mapController: _mapController,
@@ -1149,65 +1207,61 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
               MarkerLayer(markers: markers),
             ],
           ),
-          Positioned(
-            left: AppSpacing.sm,
-            right: AppSpacing.sm,
-            top: AppSpacing.sm,
-            child: _RideSearchCard(
-              pickup: pickup,
-              destination: destination,
-              isLocating: _isLocating,
-              locationMessage: _locationMessage,
-              mapEditTarget: _mapEditTarget,
-              onSearchPickup: () => _openPlaceSearch(_MapEditTarget.pickup),
-              onSearchDestination: () =>
-                  _openPlaceSearch(_MapEditTarget.destination),
-              onUseCurrentLocation: _useCurrentLocation,
-              onMapEditTargetChanged: (target) {
-                setState(() => _mapEditTarget = target);
-              },
-            ),
-          ),
-          if (riderId != null && !showAssignedPanel)
+          if (!showAssignedPanel)
             Positioned(
-              left: AppSpacing.sm,
-              right: AppSpacing.sm,
-              top: 205,
-              child: _ActiveRidePanel(riderId: riderId),
+              left: AppSpacing.base,
+              right: AppSpacing.base,
+              top: safeTop + AppSpacing.base,
+              child: _RideSearchCard(
+                pickup: pickup,
+                destination: destination,
+                isLocating: _isLocating,
+                locationMessage: _locationMessage,
+                mapEditTarget: _mapEditTarget,
+                showReset: showReset,
+                onReset: _resetPlanner,
+                onSearchPickup: () => _openPlaceSearch(_MapEditTarget.pickup),
+                onSearchDestination: () =>
+                    _openPlaceSearch(_MapEditTarget.destination),
+                onUseCurrentLocation: _useCurrentLocation,
+                onMapEditTargetChanged: (target) {
+                  setState(() => _mapEditTarget = target);
+                },
+              ),
             ),
           Positioned(
-            right: AppSpacing.gutter,
-            bottom: showAssignedPanel ? 320 : 190,
+            right: AppSpacing.base,
+            top: showAssignedPanel ? safeTop + AppSpacing.base : safeTop + 224,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                FloatingActionButton.small(
-                  heroTag: 'transitToggle',
+                _MapControlButton(
+                  key: const Key('map_control_transit'),
+                  icon: Icons.directions_transit,
                   onPressed: _loadTransitStops,
                   tooltip: 'Transit stops',
-                  child: const Icon(Icons.directions_transit),
+                  selected: _selectedTransitStop != null,
+                  loading: _transitStatus == _TransitStatus.loading,
                 ),
-                const SizedBox(height: 8),
-                FloatingActionButton.small(
-                  heroTag: 'currentLocation',
+                const SizedBox(height: AppSpacing.sm),
+                _MapControlButton(
+                  key: const Key('map_control_location'),
+                  icon: _currentLocation == null
+                      ? Icons.location_searching
+                      : Icons.my_location,
                   onPressed: _currentLocation == null
                       ? _startLocationTracking
                       : () => _moveTo(_currentLocation!),
                   tooltip: _currentLocation == null
                       ? 'Retry location'
                       : 'Centre on my location',
-                  child: Icon(
-                    _currentLocation == null
-                        ? Icons.location_searching
-                        : Icons.my_location,
-                  ),
                 ),
               ],
             ),
           ),
           Positioned(
             left: AppSpacing.base,
-            bottom: showAssignedPanel ? 310 : 176,
+            bottom: showAssignedPanel ? 360 : 198,
             child: DecoratedBox(
               decoration: BoxDecoration(
                 color: Theme.of(
@@ -1224,25 +1278,6 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
               ),
             ),
           ),
-          if (_transitStatus != _TransitStatus.idle)
-            Positioned(
-              right: AppSpacing.gutter,
-              top: 210,
-              child: _TransitBadge(
-                status: _transitStatus,
-                count: _nearbyStops.length,
-                error: _transitError,
-                onRetry: _loadTransitStops,
-              ),
-            ),
-          if (_nearby.isEmpty &&
-              phase == TripPlannerPhase.routePreview &&
-              _currentLocation != null)
-            Positioned(
-              left: AppSpacing.sm,
-              bottom: showAssignedPanel ? 320 : 190,
-              child: const _NoNearbyDriversBanner(),
-            ),
           if (showAssignedPanel)
             Positioned(
               left: 0,
@@ -1285,10 +1320,11 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
             )
           else
             Positioned(
-              left: AppSpacing.sm,
-              right: AppSpacing.sm,
-              bottom: 30,
+              left: 0,
+              right: 0,
+              bottom: 0,
               child: _TripSummaryPanel(
+                key: const Key('bolt_trip_panel'),
                 pickup: pickup,
                 destination: destination,
                 distanceMeters: distance,
@@ -1296,15 +1332,62 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
                 isLoadingRoute: _state.isLoadingRoute,
                 isResolvingPin: _isResolvingPin,
                 phase: phase,
-                onChooseVehicle: pickup != null && destination != null
-                    ? () => _state.selectVehicle(
-                        _vehicleOptionsForRoute(route).first,
-                      )
+                nearbyDriverCount: _nearby.length,
+                transitStatus: _transitStatus,
+                transitStopCount: _nearbyStops.length,
+                transitError: _transitError,
+                selectedTransitName: _selectedTransitStop?.stop.name,
+                onChooseVehicle: route != null
+                    ? () => unawaited(_openVehicleOptionsSheet())
                     : null,
-                onReviewTrip: _reviewTrip,
+                onSearchDestination: () =>
+                    _openPlaceSearch(_MapEditTarget.destination),
+                onReset: _resetPlanner,
+                onTransitTap: _loadTransitStops,
               ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+class _MapControlButton extends StatelessWidget {
+  const _MapControlButton({
+    super.key,
+    required this.icon,
+    required this.onPressed,
+    required this.tooltip,
+    this.selected = false,
+    this.loading = false,
+  });
+
+  final IconData icon;
+  final VoidCallback onPressed;
+  final String tooltip;
+  final bool selected;
+  final bool loading;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Material(
+      elevation: 4,
+      color: selected ? colors.primary : colors.surface,
+      shape: const CircleBorder(),
+      child: IconButton(
+        onPressed: loading ? null : onPressed,
+        tooltip: tooltip,
+        icon: loading
+            ? SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: selected ? colors.onPrimary : colors.primary,
+                ),
+              )
+            : Icon(icon, color: selected ? colors.onPrimary : colors.onSurface),
       ),
     );
   }
@@ -1337,140 +1420,51 @@ class _NearbyVehiclePin extends StatelessWidget {
 }
 
 class _TransitStopPin extends StatelessWidget {
-  const _TransitStopPin({required this.stop});
+  const _TransitStopPin({
+    required this.stop,
+    required this.selected,
+    required this.onTap,
+  });
 
   final NearbyTransitStop stop;
+  final bool selected;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final stale = stop.stop.isStale;
     return Semantics(
-      label: 'Transit stop ${stop.stop.name}',
+      button: true,
+      selected: selected,
+      label: 'Transit stop ${stop.stop.name}${selected ? ', selected' : ''}',
       child: Tooltip(
         message:
             '${stop.stop.name} · ${stop.distanceLabel}${stale ? ' · Stale data' : ''}',
-        child: Container(
-          decoration: BoxDecoration(
-            color: stale
-                ? Theme.of(context).colorScheme.outlineVariant
-                : const Color(0xFF1F477B),
-            shape: BoxShape.rectangle,
-            borderRadius: BorderRadius.circular(6),
-            border: Border.all(color: Colors.white, width: 2),
-          ),
-          child: Icon(Icons.directions_transit, color: Colors.white, size: 16),
-        ),
-      ),
-    );
-  }
-}
-
-class _TransitBadge extends StatelessWidget {
-  const _TransitBadge({
-    required this.status,
-    required this.count,
-    this.error,
-    this.onRetry,
-  });
-
-  final _TransitStatus status;
-  final int count;
-  final String? error;
-  final VoidCallback? onRetry;
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.sm,
-          vertical: AppSpacing.xs,
-        ),
-        child: switch (status) {
-          _TransitStatus.loading => const Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              SizedBox(
-                width: 14,
-                height: 14,
-                child: CircularProgressIndicator(strokeWidth: 2),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(8),
+          child: Container(
+            decoration: BoxDecoration(
+              color: selected
+                  ? Theme.of(context).colorScheme.tertiary
+                  : stale
+                  ? Theme.of(context).colorScheme.outlineVariant
+                  : const Color(0xFF1F477B),
+              shape: BoxShape.rectangle,
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(
+                color: selected
+                    ? Theme.of(context).colorScheme.onTertiary
+                    : Colors.white,
+                width: selected ? 3 : 2,
               ),
-              SizedBox(width: AppSpacing.base),
-              Text('Loading stops…'),
-            ],
-          ),
-          _TransitStatus.empty => Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.info_outline, size: 16),
-              const SizedBox(width: AppSpacing.xs),
-              const Text('No official stops within 2 km'),
-              const SizedBox(width: AppSpacing.xs),
-              IconButton(
-                onPressed: onRetry,
-                tooltip: 'Retry',
-                icon: const Icon(Icons.refresh, size: 16),
-              ),
-            ],
-          ),
-          _TransitStatus.error => Tooltip(
-            message: error,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  Icons.error,
-                  size: 16,
-                  color: Theme.of(context).colorScheme.error,
-                ),
-                const SizedBox(width: AppSpacing.xs),
-                Text(
-                  'Stops unavailable',
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
-                ),
-                const SizedBox(width: AppSpacing.xs),
-                IconButton(
-                  onPressed: onRetry,
-                  tooltip: 'Retry',
-                  icon: const Icon(Icons.refresh, size: 16),
-                ),
-              ],
+            ),
+            child: Icon(
+              selected ? Icons.check : Icons.directions_transit,
+              color: Colors.white,
+              size: 16,
             ),
           ),
-          _TransitStatus.data => Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.directions_transit, size: 16),
-              const SizedBox(width: AppSpacing.xs),
-              Text('$count nearby stops'),
-            ],
-          ),
-          _ => const SizedBox.shrink(),
-        },
-      ),
-    );
-  }
-}
-
-class _NoNearbyDriversBanner extends StatelessWidget {
-  const _NoNearbyDriversBanner();
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      color: Theme.of(context).colorScheme.surfaceContainerLowest,
-      child: const Padding(
-        padding: EdgeInsets.symmetric(
-          horizontal: AppSpacing.sm,
-          vertical: AppSpacing.xs,
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.info_outline, size: 16),
-            SizedBox(width: AppSpacing.base),
-            Flexible(child: Text('No nearby drivers at the moment.')),
-          ],
         ),
       ),
     );
@@ -1484,6 +1478,8 @@ class _RideSearchCard extends StatelessWidget {
     required this.isLocating,
     required this.locationMessage,
     required this.mapEditTarget,
+    required this.showReset,
+    required this.onReset,
     required this.onSearchPickup,
     required this.onSearchDestination,
     required this.onUseCurrentLocation,
@@ -1495,6 +1491,8 @@ class _RideSearchCard extends StatelessWidget {
   final bool isLocating;
   final String? locationMessage;
   final _MapEditTarget mapEditTarget;
+  final bool showReset;
+  final VoidCallback onReset;
   final VoidCallback onSearchPickup;
   final VoidCallback onSearchDestination;
   final VoidCallback onUseCurrentLocation;
@@ -1502,13 +1500,53 @@ class _RideSearchCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      elevation: 3,
+    final colors = Theme.of(context).colorScheme;
+    return Material(
+      key: const Key('bolt_search_panel'),
+      elevation: 8,
+      color: colors.surface,
+      shadowColor: Colors.black26,
+      borderRadius: BorderRadius.circular(22),
+      clipBehavior: Clip.antiAlias,
       child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.sm),
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            Row(
+              children: [
+                Container(
+                  width: 34,
+                  height: 34,
+                  decoration: BoxDecoration(
+                    color: colors.primary,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(
+                    Icons.local_taxi_rounded,
+                    color: colors.onPrimary,
+                    size: 20,
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(
+                  child: Text(
+                    'Where are you going?',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                if (showReset)
+                  IconButton(
+                    onPressed: onReset,
+                    tooltip: 'Clear trip',
+                    visualDensity: VisualDensity.compact,
+                    icon: const Icon(Icons.close_rounded),
+                  ),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.sm),
             _LocationSearchField(
               icon: Icons.trip_origin,
               iconColor: const Color(0xFF1DB173),
@@ -1523,7 +1561,7 @@ class _RideSearchCard extends StatelessWidget {
                 icon: const Icon(Icons.my_location, size: 20),
               ),
             ),
-            const SizedBox(height: AppSpacing.base),
+            const SizedBox(height: 6),
             _LocationSearchField(
               icon: Icons.location_pin,
               iconColor: Theme.of(context).colorScheme.error,
@@ -1532,7 +1570,7 @@ class _RideSearchCard extends StatelessWidget {
               onTap: onSearchDestination,
             ),
             if (locationMessage != null) ...[
-              const SizedBox(height: AppSpacing.base),
+              const SizedBox(height: AppSpacing.xs),
               Row(
                 children: [
                   const Icon(Icons.info_outline, size: 16),
@@ -1546,32 +1584,30 @@ class _RideSearchCard extends StatelessWidget {
                 ],
               ),
             ],
-            const SizedBox(height: AppSpacing.base),
+            const SizedBox(height: AppSpacing.xs),
             Row(
               children: [
                 Text(
-                  'Tap map to adjust:',
-                  style: Theme.of(context).textTheme.bodySmall,
+                  'Move pin on map',
+                  style: Theme.of(context).textTheme.labelSmall,
                 ),
-                const SizedBox(width: AppSpacing.base),
-                Expanded(
-                  child: SegmentedButton<_MapEditTarget>(
-                    showSelectedIcon: false,
-                    segments: const [
-                      ButtonSegment(
-                        value: _MapEditTarget.pickup,
-                        label: Text('Pickup'),
-                      ),
-                      ButtonSegment(
-                        value: _MapEditTarget.destination,
-                        label: Text('Drop-off'),
-                      ),
-                    ],
-                    selected: {mapEditTarget},
-                    onSelectionChanged: (selection) {
-                      onMapEditTargetChanged(selection.first);
-                    },
-                  ),
+                const Spacer(),
+                ChoiceChip(
+                  label: const Text('Pickup'),
+                  selected: mapEditTarget == _MapEditTarget.pickup,
+                  visualDensity: VisualDensity.compact,
+                  showCheckmark: false,
+                  onSelected: (_) =>
+                      onMapEditTargetChanged(_MapEditTarget.pickup),
+                ),
+                const SizedBox(width: AppSpacing.xs),
+                ChoiceChip(
+                  label: const Text('Drop-off'),
+                  selected: mapEditTarget == _MapEditTarget.destination,
+                  visualDensity: VisualDensity.compact,
+                  showCheckmark: false,
+                  onSelected: (_) =>
+                      onMapEditTargetChanged(_MapEditTarget.destination),
                 ),
               ],
             ),
@@ -1834,6 +1870,7 @@ class _PlaceSearchSheetState extends State<_PlaceSearchSheet> {
 
 class _TripSummaryPanel extends StatelessWidget {
   const _TripSummaryPanel({
+    super.key,
     required this.pickup,
     required this.destination,
     required this.distanceMeters,
@@ -1841,8 +1878,15 @@ class _TripSummaryPanel extends StatelessWidget {
     required this.isLoadingRoute,
     required this.isResolvingPin,
     required this.phase,
+    required this.nearbyDriverCount,
+    required this.transitStatus,
+    required this.transitStopCount,
+    required this.transitError,
+    required this.selectedTransitName,
     required this.onChooseVehicle,
-    required this.onReviewTrip,
+    required this.onSearchDestination,
+    required this.onReset,
+    required this.onTransitTap,
   });
 
   final GeoPlace? pickup;
@@ -1852,65 +1896,174 @@ class _TripSummaryPanel extends StatelessWidget {
   final bool isLoadingRoute;
   final bool isResolvingPin;
   final TripPlannerPhase phase;
+  final int nearbyDriverCount;
+  final _TransitStatus transitStatus;
+  final int transitStopCount;
+  final String? transitError;
+  final String? selectedTransitName;
   final VoidCallback? onChooseVehicle;
-  final VoidCallback onReviewTrip;
+  final VoidCallback onSearchDestination;
+  final VoidCallback onReset;
+  final VoidCallback onTransitTap;
 
   @override
   Widget build(BuildContext context) {
-    final canContinue = pickup != null && destination != null;
+    final colors = Theme.of(context).colorScheme;
+    final tripEnded =
+        phase == TripPlannerPhase.completed ||
+        phase == TripPlannerPhase.cancelled;
     final title = switch (phase) {
-      TripPlannerPhase.explore =>
-        pickup != null && destination != null
-            ? 'Route preview ready'
-            : 'Choose a destination',
-      TripPlannerPhase.routePreview => 'Review & choose vehicle',
-      TripPlannerPhase.vehicleOptions => 'Vehicle options',
-      TripPlannerPhase.pickupConfirmation => 'Confirming pickup',
-      _ => 'Trip in progress',
+      TripPlannerPhase.routePreview => 'Choose how you want to ride',
+      TripPlannerPhase.vehicleOptions => 'Select your ride',
+      TripPlannerPhase.pickupConfirmation => 'Confirm your pickup',
+      TripPlannerPhase.completed => 'You have arrived',
+      TripPlannerPhase.cancelled => 'Ride cancelled',
+      _ => destination == null ? 'Search your destination' : 'Building route',
     };
-    String sub;
+    String subtitle;
     if (isLoadingRoute) {
-      sub = 'Computing route…';
+      subtitle = 'Calculating the best road route…';
     } else if (isResolvingPin) {
-      sub = 'Finding address…';
+      subtitle = 'Finding this address…';
     } else if (route != null) {
-      sub = '${route!.distanceText} · ETA ${route!.etaText} (real road)';
+      subtitle = '${route!.distanceText} · About ${route!.etaText}';
     } else if (distanceMeters == null) {
-      sub = 'Search above or tap the map to place a pin.';
+      subtitle = 'Enter a place above or move the pin on the map.';
     } else {
-      sub =
-          '${(distanceMeters! / 1000).toStringAsFixed(2)} km straight-line preview';
+      subtitle =
+          '${(distanceMeters! / 1000).toStringAsFixed(1)} km direct distance';
     }
-    return Card(
-      elevation: 3,
-      child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.sm),
-        child: Row(
-          children: [
-            Expanded(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title, style: Theme.of(context).textTheme.titleMedium),
-                  const SizedBox(height: AppSpacing.xs),
-                  Text(sub, style: Theme.of(context).textTheme.bodySmall),
-                ],
-              ),
-            ),
-            const SizedBox(width: AppSpacing.sm),
-            phase == TripPlannerPhase.routePreview
-                ? ElevatedButton.icon(
-                    onPressed: onChooseVehicle,
-                    icon: const Icon(Icons.local_taxi, size: 18),
-                    label: const Text('Choose'),
-                  )
-                : ElevatedButton(
-                    onPressed: canContinue ? onReviewTrip : null,
-                    child: const Text('Review'),
+
+    final transitLabel = selectedTransitName != null
+        ? selectedTransitName!
+        : switch (transitStatus) {
+            _TransitStatus.loading => 'Loading stops',
+            _TransitStatus.data => '$transitStopCount transit stops',
+            _TransitStatus.empty => 'No stops nearby',
+            _TransitStatus.error => 'Transit unavailable',
+            _ => 'Transit connection',
+          };
+    final primaryLabel = tripEnded
+        ? 'Plan another ride'
+        : route != null
+        ? 'Choose a ride'
+        : destination == null
+        ? 'Search destination'
+        : 'Calculating route…';
+    final primaryAction = tripEnded
+        ? onReset
+        : route != null
+        ? onChooseVehicle
+        : destination == null
+        ? onSearchDestination
+        : null;
+
+    return SafeArea(
+      top: false,
+      child: Material(
+        color: colors.surface,
+        elevation: 14,
+        shadowColor: Colors.black26,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+        clipBehavior: Clip.antiAlias,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(18, 10, 18, 14),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Center(
+                child: Container(
+                  width: 42,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: colors.outlineVariant,
+                    borderRadius: BorderRadius.circular(99),
                   ),
-          ],
+                ),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              Text(
+                title,
+                style: Theme.of(
+                  context,
+                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 2),
+              Text(subtitle, style: Theme.of(context).textTheme.bodyMedium),
+              if (isLoadingRoute) ...[
+                const SizedBox(height: AppSpacing.sm),
+                const LinearProgressIndicator(minHeight: 3),
+              ],
+              const SizedBox(height: AppSpacing.sm),
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    _InfoPill(
+                      icon: Icons.local_taxi_outlined,
+                      label: nearbyDriverCount == 0
+                          ? 'No cars nearby'
+                          : '$nearbyDriverCount cars nearby',
+                    ),
+                    const SizedBox(width: AppSpacing.xs),
+                    Tooltip(
+                      message: transitError ?? 'Show nearby official stops',
+                      child: ActionChip(
+                        avatar: Icon(
+                          selectedTransitName == null
+                              ? Icons.directions_transit
+                              : Icons.check_circle,
+                          size: 17,
+                        ),
+                        label: Text(transitLabel),
+                        onPressed: onTransitTap,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              FilledButton(
+                key: const Key('primary_trip_action'),
+                onPressed: primaryAction,
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size.fromHeight(54),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  textStyle: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                child: Text(primaryLabel),
+              ),
+            ],
+          ),
         ),
+      ),
+    );
+  }
+}
+
+class _InfoPill extends StatelessWidget {
+  const _InfoPill({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(99),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [Icon(icon, size: 17), const SizedBox(width: 6), Text(label)],
       ),
     );
   }
@@ -1958,200 +2111,6 @@ class _MapPin extends StatelessWidget {
         ),
         child: Icon(icon, color: Colors.white, size: 24),
       ),
-    );
-  }
-}
-
-class _ActiveRidePanel extends StatelessWidget {
-  const _ActiveRidePanel({required this.riderId});
-
-  final String riderId;
-
-  @override
-  Widget build(BuildContext context) {
-    return StreamBuilder<List<Map<String, dynamic>>>(
-      stream: supabase
-          .from('rides')
-          .stream(primaryKey: ['id'])
-          .eq('rider_id', riderId)
-          .order('created_at'),
-      builder: (context, snapshot) {
-        if (snapshot.hasError) return const SizedBox.shrink();
-        final rides = (snapshot.data ?? [])
-            .map(Ride.fromJson)
-            .where(
-              (ride) =>
-                  ride.status != 'completed' && ride.status != 'cancelled',
-            )
-            .toList();
-        if (rides.isEmpty) return const SizedBox.shrink();
-        final activeRide = rides.last;
-        final canChat =
-            activeRide.driverId != null &&
-            (activeRide.status == 'driver_assigned' ||
-                activeRide.status == 'en_route');
-        return Card(
-          child: ListTile(
-            dense: true,
-            leading: const Icon(Icons.local_taxi),
-            title: Text(
-              '${activeRide.pickup} → ${activeRide.destination}',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            subtitle: Text('Status: ${activeRide.status.replaceAll('_', ' ')}'),
-            trailing: canChat
-                ? IconButton(
-                    onPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) =>
-                              ChatWithDriverScreen(rideId: activeRide.id),
-                        ),
-                      );
-                    },
-                    tooltip: 'Chat with driver',
-                    icon: const Icon(Icons.chat_bubble_outline),
-                  )
-                : null,
-          ),
-        );
-      },
-    );
-  }
-}
-
-class TripPlanReviewScreen extends StatelessWidget {
-  const TripPlanReviewScreen({
-    super.key,
-    required this.pickup,
-    required this.destination,
-  });
-
-  final GeoPlace pickup;
-  final GeoPlace destination;
-
-  void _openBookingSheet(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      builder: (context) => BookingFormSheet(
-        initialPickup: pickup.bookingLabel,
-        initialDestination: destination.bookingLabel,
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final distance = straightLineDistanceMeters(
-      pickup.point,
-      destination.point,
-    );
-    return Scaffold(
-      appBar: AppBar(title: const Text('Review trip')),
-      body: Padding(
-        padding: const EdgeInsets.all(AppSpacing.marginMobile),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text('TRIP DETAILS', style: AppTextStyles.labelCaps),
-            const SizedBox(height: AppSpacing.gutter),
-            _LocationSummary(
-              icon: Icons.trip_origin,
-              iconColor: const Color(0xFF1DB173),
-              label: 'Pickup',
-              place: pickup,
-            ),
-            const Padding(
-              padding: EdgeInsets.only(left: 11),
-              child: SizedBox(
-                height: 28,
-                child: VerticalDivider(width: 2, thickness: 2),
-              ),
-            ),
-            _LocationSummary(
-              icon: Icons.location_pin,
-              iconColor: Theme.of(context).colorScheme.error,
-              label: 'Destination',
-              place: destination,
-            ),
-            const SizedBox(height: AppSpacing.md),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(AppSpacing.gutter),
-                child: Row(
-                  children: [
-                    const Icon(Icons.route),
-                    const SizedBox(width: AppSpacing.sm),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            '${(distance / 1000).toStringAsFixed(2)} km',
-                            style: Theme.of(context).textTheme.titleMedium,
-                          ),
-                          const Text(
-                            'Straight-line estimate; road distance may differ.',
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const Spacer(),
-            ElevatedButton.icon(
-              onPressed: () => _openBookingSheet(context),
-              icon: const Icon(Icons.local_taxi),
-              label: const Text('Confirm ride details'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _LocationSummary extends StatelessWidget {
-  const _LocationSummary({
-    required this.icon,
-    required this.iconColor,
-    required this.label,
-    required this.place,
-  });
-
-  final IconData icon;
-  final Color iconColor;
-  final String label;
-  final GeoPlace place;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Icon(icon, color: iconColor),
-        const SizedBox(width: AppSpacing.sm),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(label, style: AppTextStyles.labelCaps),
-              const SizedBox(height: AppSpacing.xs),
-              Text(place.name, style: Theme.of(context).textTheme.titleMedium),
-              if (place.subtitle.isNotEmpty)
-                Text(
-                  place.subtitle,
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-            ],
-          ),
-        ),
-      ],
     );
   }
 }

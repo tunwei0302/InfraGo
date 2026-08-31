@@ -283,11 +283,7 @@ class SharedRouteMarkers {
     final partnerIndex = myRiderIndex == 0 ? 1 : 0;
     final partnerDetour = match.riderDetourPercent[partnerIndex] ?? 0;
     final myDetour = match.riderDetourPercent[myRiderIndex] ?? 0;
-    final soloA = match.bestRoute.riderDetourPercent[0] ?? 0;
-    final soloB = match.bestRoute.riderDetourPercent[1] ?? 0;
-    final savedKm =
-        ((soloA + soloB) * match.bestRoute.totalDistanceMeters / 100 / 1000)
-            .toStringAsFixed(1);
+    final savedKm = (match.vehicleKmAvoidedMeters / 1000).toStringAsFixed(1);
 
     return Container(
       decoration: BoxDecoration(

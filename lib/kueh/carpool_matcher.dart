@@ -70,6 +70,8 @@ class CarpoolMatch {
     required this.departureDifferenceMinutes,
     required this.pickupDistanceMeters,
     required this.sameTransitStop,
+    this.soloTotalDistanceMeters = 0,
+    this.vehicleKmAvoidedMeters = 0,
   });
 
   final List<RideRequest> requests;
@@ -81,6 +83,8 @@ class CarpoolMatch {
   final int departureDifferenceMinutes;
   final double pickupDistanceMeters;
   final bool sameTransitStop;
+  final double soloTotalDistanceMeters;
+  final double vehicleKmAvoidedMeters;
 
   int get totalPassengers => requests.fold<int>(0, (s, r) => s + r.passengers);
 }
@@ -220,11 +224,14 @@ class CarpoolMatcher {
     required RideRequest a,
     required RideRequest b,
     required EvaluatedRoute best,
+    Map<int, double>? soloDistanceMeters,
   }) async {
-    final soloA = await routing.soloDistanceSeconds(a);
-    final soloB = await routing.soloDistanceSeconds(b);
-    final soloDistA = soloA['distance']!;
-    final soloDistB = soloB['distance']!;
+    final soloDistA =
+        soloDistanceMeters?[0] ??
+        (await routing.soloDistanceSeconds(a))['distance']!;
+    final soloDistB =
+        soloDistanceMeters?[1] ??
+        (await routing.soloDistanceSeconds(b))['distance']!;
     final detourA = best.riderDetourPercent[0] ?? 0;
     final detourB = best.riderDetourPercent[1] ?? 0;
     final maxDetour = max(detourA, detourB);
@@ -331,7 +338,16 @@ class CarpoolMatcher {
       return null;
     }
 
-    final scoreExplanation = await scoreAndDetour(a: a, b: b, best: best);
+    final soloDistanceMeters = <int, double>{
+      0: (await routing.soloDistanceSeconds(a))['distance']!,
+      1: (await routing.soloDistanceSeconds(b))['distance']!,
+    };
+    final scoreExplanation = await scoreAndDetour(
+      a: a,
+      b: b,
+      best: best,
+      soloDistanceMeters: soloDistanceMeters,
+    );
     if (!scoreExplanation.accepted) return null;
 
     final departDiff = a.departAt.difference(b.departAt).abs().inMinutes;
@@ -343,6 +359,12 @@ class CarpoolMatcher {
     final maxDetour = max<double>(
       best.riderDetourPercent[0] ?? 0,
       best.riderDetourPercent[1] ?? 0,
+    );
+    final soloTotalDistanceMeters =
+        soloDistanceMeters[0]! + soloDistanceMeters[1]!;
+    final vehicleKmAvoidedMeters = max<double>(
+      0,
+      soloTotalDistanceMeters - best.totalDistanceMeters,
     );
 
     return CarpoolMatch(
@@ -360,6 +382,8 @@ class CarpoolMatcher {
       departureDifferenceMinutes: departDiff,
       pickupDistanceMeters: pickupDist,
       sameTransitStop: sameStop,
+      soloTotalDistanceMeters: soloTotalDistanceMeters,
+      vehicleKmAvoidedMeters: vehicleKmAvoidedMeters,
     );
   }
 

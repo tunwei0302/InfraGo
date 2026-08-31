@@ -22,6 +22,8 @@ void main() {
   Future<RideBookingResult> book(
     RideBookingRepository repo, {
     int rewardPointsToRedeem = 0,
+    String? transitStopId,
+    String? transitStopName,
   }) {
     return repo.createRideWithQuoteAndPayment(
       pickupLabel: 'Home',
@@ -35,6 +37,8 @@ void main() {
       routeDurationSeconds: 600,
       paymentMethod: PaymentMethod.cash,
       clientRequestId: 'req-1',
+      transitStopId: transitStopId,
+      transitStopName: transitStopName,
       rewardPointsToRedeem: rewardPointsToRedeem,
     );
   }
@@ -63,12 +67,19 @@ void main() {
         return {'success': true, 'ride_id': 'ride-1', 'status': 'pending'};
       },
     );
-    await book(repo, rewardPointsToRedeem: 150);
+    await book(
+      repo,
+      rewardPointsToRedeem: 150,
+      transitStopId: 'stop-kl-42',
+      transitStopName: 'Pasar Seni',
+    );
     expect(calledFn, 'create_ride_with_quote_and_payment');
     expect(calledParams!['p_service_type'], 'economy_4');
     expect(calledParams!['p_payment_method'], 'cash');
     expect(calledParams!['p_client_request_id'], 'req-1');
     expect(calledParams!['p_reward_points_to_redeem'], 150);
+    expect(calledParams!['p_transit_stop_id'], 'stop-kl-42');
+    expect(calledParams!['p_transit_stop_name'], 'Pasar Seni');
     expect(calledParams!['p_pickup_lat'], pickup.latitude);
     expect(calledParams!['p_destination_lng'], destination.longitude);
   });
@@ -95,9 +106,6 @@ void main() {
       _dummyClient(),
       rpcCaller: (fn, {params}) => throw Exception('connection reset'),
     );
-    await expectLater(
-      () => book(repo),
-      throwsA(isA<RideBookingException>()),
-    );
+    await expectLater(() => book(repo), throwsA(isA<RideBookingException>()));
   });
 }
