@@ -58,6 +58,20 @@ class PaymentRepository {
     return Map<String, dynamic>.from(result as Map);
   }
 
+  Future<Map<String, dynamic>> convertSharedRideToSolo(String rideId) async {
+    final result = await _rpc(
+      'continue_shared_ride_solo',
+      params: {'p_ride_id': rideId},
+    );
+    final map = Map<String, dynamic>.from(result as Map);
+    if (map['success'] != true) {
+      throw PaymentException(
+        map['reason']?.toString() ?? 'shared_to_solo_failed',
+      );
+    }
+    return map;
+  }
+
   Future<Map<String, dynamic>> cancelRideAndSettlePayment({
     required String rideId,
     required String cancelledBy,

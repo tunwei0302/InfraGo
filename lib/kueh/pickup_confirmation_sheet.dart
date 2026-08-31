@@ -22,6 +22,7 @@ class PickupConfirmationSheet extends StatefulWidget {
     required this.onConfirm,
     required this.passengerCount,
     this.scheduledDeparture,
+    this.transitStopName,
     this.isSubmitting = false,
     this.errorMessage,
   });
@@ -35,6 +36,7 @@ class PickupConfirmationSheet extends StatefulWidget {
   final VoidCallback onConfirm;
   final int passengerCount;
   final DateTime? scheduledDeparture;
+  final String? transitStopName;
   final bool isSubmitting;
   final String? errorMessage;
 
@@ -46,6 +48,7 @@ class PickupConfirmationSheet extends StatefulWidget {
     required TripPlanRoute route,
     required int passengerCount,
     DateTime? scheduledDeparture,
+    String? transitStopName,
   }) async {
     final noteController = TextEditingController();
     final error = ValueNotifier<String?>(null);
@@ -133,6 +136,7 @@ class PickupConfirmationSheet extends StatefulWidget {
                               route: route,
                               passengerCount: passengerCount,
                               scheduledDeparture: scheduledDeparture,
+                              transitStopName: transitStopName,
                             ),
                             const SizedBox(height: AppSpacing.md),
                             Text(
@@ -287,12 +291,14 @@ class _TripSummaryCard extends StatelessWidget {
     required this.route,
     required this.passengerCount,
     this.scheduledDeparture,
+    this.transitStopName,
   });
 
   final VehicleOption vehicle;
   final TripPlanRoute route;
   final int passengerCount;
   final DateTime? scheduledDeparture;
+  final String? transitStopName;
 
   @override
   Widget build(BuildContext context) {
@@ -328,6 +334,21 @@ class _TripSummaryCard extends StatelessWidget {
                           'Scheduled ${MaterialLocalizations.of(context).formatMediumDate(scheduledDeparture!)} '
                           '${TimeOfDay.fromDateTime(scheduledDeparture!).format(context)}',
                           style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ],
+                      if (transitStopName != null) ...[
+                        const SizedBox(height: AppSpacing.sm),
+                        Row(
+                          children: [
+                            const Icon(Icons.directions_transit, size: 16),
+                            const SizedBox(width: AppSpacing.xs),
+                            Expanded(
+                              child: Text(
+                                'Transit connection: $transitStopName',
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ],

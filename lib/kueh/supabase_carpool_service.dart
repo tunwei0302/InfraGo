@@ -59,6 +59,7 @@ class SupabaseCarpoolService {
           'p_detour_b': match.riderDetourPercent[1] ?? 0,
           'p_route_distance_meters': match.bestRoute.totalDistanceMeters,
           'p_route_duration_seconds': match.bestRoute.totalDurationSeconds,
+          'p_vehicle_km_avoided': match.vehicleKmAvoidedMeters,
         },
       );
       final payload = Map<String, dynamic>.from(result as Map);

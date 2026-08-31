@@ -16,6 +16,8 @@ void main() {
     expect(sql, contains('total_passengers BETWEEN 2 AND 4'));
     expect(sql, contains('p_detour_a > 25'));
     expect(sql, contains('p_match_score < 60'));
+    expect(sql, contains('p_vehicle_km_avoided DOUBLE PRECISION'));
+    expect(sql, contains('GREATEST(0, p_vehicle_km_avoided)'));
   });
 
   test(
@@ -47,6 +49,20 @@ void main() {
     expect(sql, contains('r.id = messages.ride_id'));
     expect(sql, contains("r.status IN ('driver_assigned', 'en_route')"));
     expect(sql, contains('sender_id = auth.uid()'));
+  });
+
+  test('shared cancellation releases the remaining rider from the group', () {
+    final fnStart = sql.indexOf(
+      'CREATE OR REPLACE FUNCTION cancel_carpool_group_membership',
+    );
+    final fnEnd = sql.indexOf('REVOKE ALL ON FUNCTION', fnStart);
+    final fnSql = sql.substring(fnStart, fnEnd);
+    expect(fnSql, contains('group_id = NULL'));
+    expect(
+      fnSql,
+      contains("status = CASE WHEN status = 'matched' THEN 'waiting_match'"),
+    );
+    expect(fnSql, contains('DELETE FROM ride_group_members'));
   });
 
   test('group acceptance assigns driver and opens chats atomically', () {

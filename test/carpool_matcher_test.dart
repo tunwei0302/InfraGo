@@ -230,6 +230,8 @@ void main() {
       expect(match.totalPassengers, 2);
       expect(match.reasons, isNotEmpty);
       expect(match.bestRoute.stopOrder, isNotEmpty);
+      expect(match.soloTotalDistanceMeters, 8200);
+      expect(match.vehicleKmAvoidedMeters, closeTo(3700, 10));
     });
 
     test('routing failure never produces fake successful match', () async {

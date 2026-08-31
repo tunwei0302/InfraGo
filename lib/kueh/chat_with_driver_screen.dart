@@ -10,10 +10,15 @@ class ChatWithDriverScreen extends StatefulWidget {
     super.key,
     this.rideId,
     this.title = 'Chat with Driver',
+    this.quickReplies = const <String>[],
   });
 
   final String? rideId;
   final String title;
+
+  /// Optional one-tap messages rendered above the composer (used by the
+  /// driver inbox; riders keep the plain composer).
+  final List<String> quickReplies;
 
   @override
   State<ChatWithDriverScreen> createState() => _ChatWithDriverScreenState();
@@ -116,6 +121,12 @@ class _ChatWithDriverScreenState extends State<ChatWithDriverScreen> {
     }
   }
 
+  Future<void> _sendQuickReply(String text) async {
+    if (text.trim().isEmpty || _isSending) return;
+    _messageController.text = text;
+    await _sendMessage();
+  }
+
   void _scrollToLatest() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_scrollController.hasClients) {
@@ -162,6 +173,13 @@ class _ChatWithDriverScreenState extends State<ChatWithDriverScreen> {
               children: [
                 _RideHeader(ride: ride),
                 Expanded(child: _buildMessageList(ride)),
+                if (_isWritableStatus(ride.status) &&
+                    widget.quickReplies.isNotEmpty)
+                  _QuickReplyBar(
+                    replies: widget.quickReplies,
+                    isSending: _isSending,
+                    onSend: (text) => _sendQuickReply(text),
+                  ),
                 if (_isWritableStatus(ride.status))
                   _MessageComposer(
                     controller: _messageController,
@@ -335,6 +353,38 @@ class _MessageBubble extends StatelessWidget {
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _QuickReplyBar extends StatelessWidget {
+  const _QuickReplyBar({
+    required this.replies,
+    required this.isSending,
+    required this.onSend,
+  });
+
+  final List<String> replies;
+  final bool isSending;
+  final ValueChanged<String> onSend;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 44,
+      child: ListView.separated(
+        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
+        scrollDirection: Axis.horizontal,
+        itemCount: replies.length,
+        separatorBuilder: (_, _) => const SizedBox(width: AppSpacing.sm),
+        itemBuilder: (context, index) => ActionChip(
+          label: Text(
+            replies[index],
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          onPressed: isSending ? null : () => onSend(replies[index]),
         ),
       ),
     );

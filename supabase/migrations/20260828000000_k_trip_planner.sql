@@ -171,7 +171,8 @@ CREATE OR REPLACE FUNCTION create_carpool_match(
   p_detour_a DOUBLE PRECISION,
   p_detour_b DOUBLE PRECISION,
   p_route_distance_meters DOUBLE PRECISION,
-  p_route_duration_seconds DOUBLE PRECISION
+  p_route_duration_seconds DOUBLE PRECISION,
+  p_vehicle_km_avoided DOUBLE PRECISION
 )
 RETURNS JSONB
 LANGUAGE plpgsql
@@ -236,11 +237,12 @@ BEGIN
 
   INSERT INTO ride_groups (
     status, total_passengers, match_score, match_reasons,
-    optimised_stop_order, route_distance_meters, route_duration_seconds
+    optimised_stop_order, route_distance_meters, route_duration_seconds,
+    vehicle_km_avoided
   ) VALUES (
     'matched', v_a.passenger_count + v_b.passenger_count, p_match_score,
     p_match_reasons, p_stop_order, p_route_distance_meters,
-    p_route_duration_seconds
+    p_route_duration_seconds, GREATEST(0, p_vehicle_km_avoided)
   ) RETURNING id INTO v_group_id;
 
   INSERT INTO ride_group_members (
@@ -274,7 +276,11 @@ BEGIN
   END IF;
   UPDATE rides SET group_id = NULL, status = 'cancelled', cancelled_at = now()
   WHERE id = p_ride_id AND rider_id = auth.uid();
-  DELETE FROM ride_group_members WHERE ride_id = p_ride_id;
+  UPDATE rides SET
+    group_id = NULL,
+    status = CASE WHEN status = 'matched' THEN 'waiting_match' ELSE status END
+  WHERE group_id = v_group_id AND id != p_ride_id;
+  DELETE FROM ride_group_members WHERE group_id = v_group_id;
   UPDATE ride_groups SET status = 'cancelled', cancelled_at = now()
   WHERE id = v_group_id;
   RETURN jsonb_build_object('success', TRUE, 'group_id', v_group_id);
@@ -287,7 +293,7 @@ REVOKE ALL ON FUNCTION upsert_my_driver_presence(
 ) FROM PUBLIC;
 REVOKE ALL ON FUNCTION create_carpool_match(
   UUID, UUID, INTEGER, TEXT[], INTEGER[], DOUBLE PRECISION, DOUBLE PRECISION,
-  DOUBLE PRECISION, DOUBLE PRECISION
+  DOUBLE PRECISION, DOUBLE PRECISION, DOUBLE PRECISION
 ) FROM PUBLIC;
 -- Drivers claim a matched group as one atomic unit: the group row and every
 -- member ride become driver_assigned in the same transaction, which is also
@@ -339,7 +345,7 @@ GRANT EXECUTE ON FUNCTION upsert_my_driver_presence(
 ) TO authenticated;
 GRANT EXECUTE ON FUNCTION create_carpool_match(
   UUID, UUID, INTEGER, TEXT[], INTEGER[], DOUBLE PRECISION, DOUBLE PRECISION,
-  DOUBLE PRECISION, DOUBLE PRECISION
+  DOUBLE PRECISION, DOUBLE PRECISION, DOUBLE PRECISION
 ) TO authenticated;
 GRANT EXECUTE ON FUNCTION cancel_carpool_group_membership(UUID) TO authenticated;
 REVOKE ALL ON FUNCTION accept_carpool_group(UUID) FROM PUBLIC;
