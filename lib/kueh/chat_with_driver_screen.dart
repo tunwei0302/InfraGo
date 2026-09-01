@@ -389,6 +389,10 @@ class _MessageBubble extends StatelessWidget {
     final time = createdAt == null
         ? null
         : TimeOfDay.fromDateTime(createdAt.toLocal()).format(context);
+    final bodyColor = isMine ? colorScheme.onPrimary : colorScheme.onSurface;
+    final mutedColor = isMine
+        ? colorScheme.onPrimary.withValues(alpha: 0.8)
+        : colorScheme.onSurfaceVariant;
 
     return Align(
       alignment: isMine ? Alignment.centerRight : Alignment.centerLeft,
@@ -421,24 +425,20 @@ class _MessageBubble extends StatelessWidget {
                 Text(
                   isMine ? 'You' : peerLabel,
                   style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: colorScheme.onSurfaceVariant,
+                    color: mutedColor,
                   ),
                 ),
                 const SizedBox(height: AppSpacing.xs),
                 Text(
                   message.body,
-                  style: TextStyle(
-                    color: isMine
-                        ? colorScheme.onPrimaryContainer
-                        : colorScheme.onSurface,
-                  ),
+                  style: TextStyle(color: bodyColor),
                 ),
                 if (time != null) ...[
                   const SizedBox(height: AppSpacing.xs),
                   Text(
                     time,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: colorScheme.onSurfaceVariant,
+                      color: mutedColor,
                     ),
                   ),
                 ],

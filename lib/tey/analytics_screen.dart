@@ -854,21 +854,6 @@ class _InfraGoPrototypeMetricsSection extends StatelessWidget {
           )
         else if (m != null)
           _MetricsBody(scheme: scheme, m: m, pctOrNA: _pctOrNA, numOrNA: _numOrNA),
-        const SizedBox(height: AppSpacing.lg),
-        Text('AI Disclosure (Tey Ying Heng — coursework)',
-            style: AppTextStyles.labelCaps),
-        const SizedBox(height: AppSpacing.xs),
-        const Text(
-          'Trae AI assisted this module with code scaffolding, repository '
-          'patterns, SQL migration templates and widget layout. Every SQL '
-          'policy, RLS gate, status transition and test case was manually '
-          'reviewed against the shared team contract before submission. '
-          'Tool limitations: no in-editor flutter analyze or git commands '
-          'were run by the assistant (toolchain unavailable in this '
-          'sandbox); owner reruns and validates the full build locally '
-          'before merging.',
-          softWrap: true,
-        ),
       ],
     );
   }

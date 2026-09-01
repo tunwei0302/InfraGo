@@ -355,21 +355,6 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                           ),
                         ),
                       ],
-                      const SizedBox(height: AppSpacing.lg),
-                      Text('AI Disclosure (coursework)',
-                          style: AppTextStyles.labelCaps),
-                      const SizedBox(height: AppSpacing.xs),
-                      const Text(
-                        'AI tools assisted code layout, SQL migration templates and '
-                        'repository patterns in this module. All RLS policies, status '
-                        'gates, handoff contracts and wording were manually reviewed '
-                        'against the shared team contract before submission. Known '
-                        'limitations: prototype calculations use coursework-formula '
-                        'pricing; no real card/bank data is collected; driver/vehicle '
-                        'approval reflects submitted info only, not government '
-                        'ownership verification.',
-                        softWrap: true,
-                      ),
                     ],
                   ),
                 ),
