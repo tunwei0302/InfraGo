@@ -22,11 +22,11 @@ class PendingIdentitySubmission {
   factory PendingIdentitySubmission.fromRow(Map<String, dynamic> row) {
     return PendingIdentitySubmission(
       driverId: row['driver_id'] as String,
-      driverName: row['driver_name']?.toString() ?? '(unknown)',
+      driverName: row['display_name']?.toString() ?? '(unknown)',
       contact: row['contact']?.toString() ?? '-',
       licencePath: row['licence_path']?.toString() ?? '',
       selfiePath: row['selfie_path']?.toString() ?? '',
-      submittedAt: DateTime.tryParse(row['created_at']?.toString() ?? '') ??
+      submittedAt: DateTime.tryParse(row['submitted_at']?.toString() ?? '') ??
           DateTime.fromMillisecondsSinceEpoch(0),
     );
   }
@@ -120,7 +120,7 @@ class AdminReviewRepository {
   }) async {
     final rows = await _loadRows(
       'driver_verifications',
-      statusColumn: 'status',
+      statusColumn: 'approval_status',
       statusValue: 'pending',
       limit: limit,
     );

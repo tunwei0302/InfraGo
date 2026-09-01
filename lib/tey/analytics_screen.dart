@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
 import 'package:infra_go/shared/app_theme.dart';
+import 'package:infra_go/shared/supabase_config.dart';
+import 'package:infra_go/tey/sdg_analytics_repository.dart';
 
 enum OpenDataStatus { loading, fresh, stale, partial, error, empty }
 
@@ -44,38 +46,34 @@ class FuelPriceSnapshot {
       DateTime.now().difference(fetchedAt) > const Duration(days: 7);
 }
 
-class PrototypeMetrics {
-  const PrototypeMetrics({
-    required this.completedRides,
-    required this.sharedGroups,
-    required this.transitLinkedRides,
-    required this.avgPassengersPerVehicle,
-    required this.avgRiderDetourRatio,
-    required this.estimatedSavingsMYR,
-    required this.vehicleKmAvoided,
-    required this.cancellationRate,
-    required this.freeCancellationCount,
-    required this.feeCancellationCount,
-  });
+enum AnalyticsDateRange {
+  last30Days('Last 30 days'),
+  allTime('All time');
 
-  final int completedRides;
-  final int sharedGroups;
-  final int transitLinkedRides;
-  final double avgPassengersPerVehicle;
-  final double avgRiderDetourRatio;
-  final double estimatedSavingsMYR;
-  final double vehicleKmAvoided;
-  final double cancellationRate;
-  final int freeCancellationCount;
-  final int feeCancellationCount;
+  const AnalyticsDateRange(this.label);
+  final String label;
+
+  DateTime? get start {
+    switch (this) {
+      case AnalyticsDateRange.last30Days:
+        return DateTime.now().subtract(const Duration(days: 30));
+      case AnalyticsDateRange.allTime:
+        return null;
+    }
+  }
 }
 
+// Dataset ids verified against https://developer.data.gov.my (the earlier
+// ids here did not exist on the live API and always returned HTTP 404).
 const String kVehicleRegSource =
-    'https://api.data.gov.my/data-catalogue?id=jpj_registered_vehicles&limit=12';
+    'https://api.data.gov.my/data-catalogue?id=registrations_type_fuel'
+    '&filter=petrol@fuel,car@type&sort=-date&limit=12';
 const String kRidershipSource =
-    'https://api.data.gov.my/data-catalogue?id=prasarana_daily_ridership&limit=14';
+    'https://api.data.gov.my/data-catalogue?id=ridership_headline'
+    '&sort=-date&limit=14';
 const String kFuelPriceSource =
-    'https://api.data.gov.my/data-catalogue?id=weekly_fuel_prices&limit=4';
+    'https://api.data.gov.my/data-catalogue?id=fuelprice'
+    '&filter=level@series_type&sort=-date&limit=4';
 
 typedef OpenDataHttpGetter = Future<http.Response> Function(Uri url);
 
@@ -143,18 +141,12 @@ class OpenDataService {
       final out = <(DateTime, double)>[];
       for (final row in body) {
         final map = row as Map<String, dynamic>;
-        final rawDate = map['date']?.toString() ?? map['date_reg']?.toString();
-        final type = (map['type']?.toString() ?? '').toLowerCase();
-        final fuel = (map['fuel']?.toString() ?? '').toLowerCase();
-        final count = (map['count'] as num?)?.toDouble() ??
-            (map['total'] as num?)?.toDouble() ??
-            0;
-        if (rawDate == null) continue;
+        final rawDate = map['date']?.toString();
+        final count = (map['registrations'] as num?)?.toDouble();
+        if (rawDate == null || count == null) continue;
         final date = DateTime.tryParse(rawDate);
         if (date == null) continue;
-        if (type == 'car' && (fuel.isEmpty || fuel == 'petrol')) {
-          out.add((date, count));
-        }
+        out.add((date, count));
       }
       out.sort((a, b) => a.$1.compareTo(b.$1));
       _vehiclePetrolSeries = List.unmodifiable(out);
@@ -177,14 +169,12 @@ class OpenDataService {
       for (final row in body) {
         final map = row as Map<String, dynamic>;
         final rawDate = map['date']?.toString();
-        final service = (map['service']?.toString() ?? '').toLowerCase();
-        final count = (map['ridership'] as num?)?.toDouble() ?? 0;
-        if (rawDate == null) continue;
+        // rail_lrt_kj = LRT Kelana Jaya line, a Prasarana-operated line.
+        final count = (map['rail_lrt_kj'] as num?)?.toDouble();
+        if (rawDate == null || count == null) continue;
         final date = DateTime.tryParse(rawDate);
         if (date == null) continue;
-        if (service == 'lrt' || service.contains('lrt')) {
-          out.add((date, count));
-        }
+        out.add((date, count));
       }
       out.sort((a, b) => a.$1.compareTo(b.$1));
       _lrtSeries = List.unmodifiable(out);
@@ -207,7 +197,8 @@ class OpenDataService {
         _fuelError = 'empty_response';
         return;
       }
-      final latest = body.last as Map<String, dynamic>;
+      // Server returns newest-first (sort=-date), so the first row is latest.
+      final latest = body.first as Map<String, dynamic>;
       final rawDate = latest['date']?.toString() ?? '';
       final date = DateTime.tryParse(rawDate) ?? DateTime.now();
       final ron95 = (latest['ron95'] as num?)?.toDouble() ?? 0;
@@ -229,10 +220,15 @@ class OpenDataService {
 }
 
 class AnalyticsScreen extends StatefulWidget {
-  const AnalyticsScreen({super.key, OpenDataService? service})
-      : _service = service;
+  const AnalyticsScreen({
+    super.key,
+    OpenDataService? service,
+    SdgAnalyticsRepository? sdgRepository,
+  })  : _service = service,
+        _sdgRepository = sdgRepository;
 
   final OpenDataService? _service;
+  final SdgAnalyticsRepository? _sdgRepository;
 
   @override
   State<AnalyticsScreen> createState() => _AnalyticsScreenState();
@@ -240,14 +236,21 @@ class AnalyticsScreen extends StatefulWidget {
 
 class _AnalyticsScreenState extends State<AnalyticsScreen> {
   late OpenDataService _openData;
+  late SdgAnalyticsRepository _sdgRepo;
   OpenDataStatus _status = OpenDataStatus.loading;
   bool _isLoading = true;
   String? _loadError;
+
+  AnalyticsDateRange _range = AnalyticsDateRange.last30Days;
+  SdgAnalyticsSnapshot? _sdg;
+  bool _sdgLoading = true;
+  String? _sdgError;
 
   @override
   void initState() {
     super.initState();
     _openData = widget._service ?? OpenDataService();
+    _sdgRepo = widget._sdgRepository ?? SdgAnalyticsRepository(supabase);
     unawaited(_refresh());
   }
 
@@ -271,6 +274,34 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         _status = OpenDataStatus.error;
       });
     }
+    await _loadSdgAnalytics();
+  }
+
+  Future<void> _loadSdgAnalytics() async {
+    setState(() {
+      _sdgLoading = true;
+      _sdgError = null;
+    });
+    try {
+      final snapshot = await _sdgRepo.fetchSnapshot(start: _range.start);
+      if (!mounted) return;
+      setState(() {
+        _sdg = snapshot;
+        _sdgLoading = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _sdgLoading = false;
+        _sdgError = error.toString();
+      });
+    }
+  }
+
+  void _onRangeChanged(AnalyticsDateRange range) {
+    if (range == _range) return;
+    setState(() => _range = range);
+    unawaited(_loadSdgAnalytics());
   }
 
   String _formatDate(DateTime dt) =>
@@ -308,6 +339,12 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             _InfraGoPrototypeMetricsSection(
               scheme: scheme,
               theme: theme,
+              snapshot: _sdg,
+              loading: _sdgLoading,
+              error: _sdgError,
+              range: _range,
+              onRangeChanged: _onRangeChanged,
+              onRetry: _loadSdgAnalytics,
             ),
           ],
         ),
@@ -727,34 +764,36 @@ class _InfraGoPrototypeMetricsSection extends StatelessWidget {
   const _InfraGoPrototypeMetricsSection({
     required this.scheme,
     required this.theme,
+    required this.snapshot,
+    required this.loading,
+    required this.error,
+    required this.range,
+    required this.onRangeChanged,
+    required this.onRetry,
   });
 
   final ColorScheme scheme;
   final ThemeData theme;
+  final SdgAnalyticsSnapshot? snapshot;
+  final bool loading;
+  final String? error;
+  final AnalyticsDateRange range;
+  final ValueChanged<AnalyticsDateRange> onRangeChanged;
+  final VoidCallback onRetry;
 
-  PrototypeMetrics _buildPrototypeSample() {
-    return const PrototypeMetrics(
-      completedRides: 0,
-      sharedGroups: 0,
-      transitLinkedRides: 0,
-      avgPassengersPerVehicle: 0,
-      avgRiderDetourRatio: 0,
-      estimatedSavingsMYR: 0,
-      vehicleKmAvoided: 0,
-      cancellationRate: 0,
-      freeCancellationCount: 0,
-      feeCancellationCount: 0,
-    );
+  String _pctOrNA(double? ratio) {
+    if (ratio == null || ratio.isNaN || ratio.isInfinite) return 'N/A';
+    return '${(ratio * 100).toStringAsFixed(1)}%';
   }
 
-  String _pctOrNA(double ratio) {
-    if (ratio.isNaN || ratio.isInfinite) return 'N/A';
-    return '${(ratio * 100).toStringAsFixed(1)}%';
+  String _numOrNA(double? value, {int decimals = 2}) {
+    if (value == null || value.isNaN || value.isInfinite) return 'N/A';
+    return value.toStringAsFixed(decimals);
   }
 
   @override
   Widget build(BuildContext context) {
-    final m = _buildPrototypeSample();
+    final m = snapshot;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -762,73 +801,59 @@ class _InfraGoPrototypeMetricsSection extends StatelessWidget {
           children: [
             Icon(Icons.science_outlined, color: scheme.tertiary),
             const SizedBox(width: AppSpacing.xs),
-            Text('InfraGo Prototype Metrics',
-                style: AppTextStyles.sectionHeader),
+            Expanded(
+              child: Text('InfraGo Prototype Metrics',
+                  style: AppTextStyles.sectionHeader),
+            ),
           ],
         ),
         const SizedBox(height: AppSpacing.xs),
         Text(
-          'These are coursework prototype estimates derived from InfraGo ride '
-          'data. They are NOT official government statistics.',
+          'These are coursework prototype estimates computed live from '
+          'InfraGo ride, group and payment records. They are NOT official '
+          'government statistics.',
           style: TextStyle(
             color: scheme.tertiary,
             fontStyle: FontStyle.italic,
           ),
         ),
-        const SizedBox(height: AppSpacing.md),
+        const SizedBox(height: AppSpacing.sm),
         Wrap(
-          spacing: AppSpacing.md,
-          runSpacing: AppSpacing.md,
-          children: [
-            _MetricCard(
-              title: 'SDG 9.1 Sustainable Mobility',
-              scheme: scheme,
-              children: [
-                _MetricRow('Completed rides', '${m.completedRides}'),
-                _MetricRow('Shared groups', '${m.sharedGroups}'),
-                _MetricRow('Transit-linked rides', '${m.transitLinkedRides}'),
-                _MetricRow('Vehicle-km avoided',
-                    '${m.vehicleKmAvoided.toStringAsFixed(1)} km'),
-                _MetricRow('Estimated user savings',
-                    'RM${m.estimatedSavingsMYR.toStringAsFixed(2)}'),
-              ],
-            ),
-            _MetricCard(
-              title: 'Vehicle Utilisation',
-              scheme: scheme,
-              children: [
-                _MetricRow(
-                  'Avg passengers / vehicle',
-                  m.avgPassengersPerVehicle == 0
-                      ? 'N/A'
-                      : m.avgPassengersPerVehicle.toStringAsFixed(2),
-                ),
-                _MetricRow(
-                  'Avg rider detour',
-                  m.avgRiderDetourRatio == 0
-                      ? 'N/A'
-                      : _pctOrNA(m.avgRiderDetourRatio),
-                ),
-              ],
-            ),
-            _MetricCard(
-              title: 'Cancellations',
-              scheme: scheme,
-              children: [
-                _MetricRow(
-                  'Overall rate',
-                  m.cancellationRate == 0 &&
-                          m.freeCancellationCount == 0 &&
-                          m.feeCancellationCount == 0
-                      ? 'N/A'
-                      : _pctOrNA(m.cancellationRate),
-                ),
-                _MetricRow('Free cancelled', '${m.freeCancellationCount}'),
-                _MetricRow('Fee cancelled', '${m.feeCancellationCount}'),
-              ],
-            ),
-          ],
+          spacing: AppSpacing.xs,
+          children: AnalyticsDateRange.values.map((r) {
+            return ChoiceChip(
+              label: Text(r.label),
+              selected: range == r,
+              onSelected: (_) => onRangeChanged(r),
+            );
+          }).toList(),
         ),
+        const SizedBox(height: AppSpacing.md),
+        if (loading && m == null)
+          const Center(child: Padding(
+            padding: EdgeInsets.all(AppSpacing.lg),
+            child: CircularProgressIndicator(),
+          ))
+        else if (error != null && m == null)
+          Card(
+            color: scheme.errorContainer,
+            child: Padding(
+              padding: const EdgeInsets.all(AppSpacing.gutter),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Could not load prototype analytics: $error',
+                    style: TextStyle(color: scheme.onErrorContainer),
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  ElevatedButton(onPressed: onRetry, child: const Text('Retry')),
+                ],
+              ),
+            ),
+          )
+        else if (m != null)
+          _MetricsBody(scheme: scheme, m: m, pctOrNA: _pctOrNA, numOrNA: _numOrNA),
         const SizedBox(height: AppSpacing.lg),
         Text('AI Disclosure (Tey Ying Heng — coursework)',
             style: AppTextStyles.labelCaps),
@@ -843,6 +868,121 @@ class _InfraGoPrototypeMetricsSection extends StatelessWidget {
           'sandbox); owner reruns and validates the full build locally '
           'before merging.',
           softWrap: true,
+        ),
+      ],
+    );
+  }
+}
+
+class _MetricsBody extends StatelessWidget {
+  const _MetricsBody({
+    required this.scheme,
+    required this.m,
+    required this.pctOrNA,
+    required this.numOrNA,
+  });
+
+  final ColorScheme scheme;
+  final SdgAnalyticsSnapshot m;
+  final String Function(double?) pctOrNA;
+  final String Function(double?, {int decimals}) numOrNA;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(
+          spacing: AppSpacing.md,
+          runSpacing: AppSpacing.md,
+          children: [
+            _MetricCard(
+              title: 'SDG 9.1 Sustainable Mobility',
+              scheme: scheme,
+              children: [
+                _MetricRow('Completed rides', '${m.completedRides}'),
+                _MetricRow('Shared groups', '${m.sharedGroupsCompleted}'),
+                _MetricRow(
+                    'Transit-linked rides', '${m.transitLinkedRides}'),
+                _MetricRow('Vehicle-km avoided',
+                    '${m.vehicleKmAvoided.toStringAsFixed(1)} km'),
+                _MetricRow('Estimated user savings',
+                    'RM${m.estimatedSavingsMYR.toStringAsFixed(2)}'),
+              ],
+            ),
+            _MetricCard(
+              title: 'Vehicle Utilisation',
+              scheme: scheme,
+              children: [
+                _MetricRow(
+                  'Avg passengers / vehicle',
+                  numOrNA(m.avgPassengersPerVehicle),
+                ),
+                _MetricRow(
+                  'Avg rider detour',
+                  pctOrNA(m.avgRiderDetourRatio),
+                ),
+              ],
+            ),
+            _MetricCard(
+              title: 'Cancellations',
+              scheme: scheme,
+              children: [
+                _MetricRow('Overall rate', pctOrNA(m.cancellationRate)),
+                _MetricRow('Free cancelled', '${m.freeCancellationCount}'),
+                _MetricRow('Fee cancelled', '${m.feeCancellationCount}'),
+                _MetricRow('Prototype driver compensation',
+                    'RM${m.prototypeDriverCompensationMYR.toStringAsFixed(2)}'),
+              ],
+            ),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.md),
+        Wrap(
+          spacing: AppSpacing.md,
+          runSpacing: AppSpacing.md,
+          children: [
+            _MetricCard(
+              title: 'Vehicle Capacity Distribution',
+              scheme: scheme,
+              children: m.vehicleCapacityDistribution.isEmpty
+                  ? const [Text('No approved vehicles yet.')]
+                  : m.vehicleCapacityDistribution
+                      .map((c) => _MetricRow(
+                          '${c.capacity}-seater', '${c.count}'))
+                      .toList(),
+            ),
+            _MetricCard(
+              title: 'Service Category Distribution',
+              scheme: scheme,
+              children: m.serviceCategoryDistribution.isEmpty
+                  ? const [Text('No completed rides in this range yet.')]
+                  : m.serviceCategoryDistribution
+                      .map((s) => _MetricRow(s.serviceType, '${s.count}'))
+                      .toList(),
+            ),
+            _MetricCard(
+              title: 'Top Cancellation Reasons',
+              scheme: scheme,
+              children: m.topCancellationReasons.isEmpty
+                  ? const [Text('No cancellation reasons recorded yet.')]
+                  : m.topCancellationReasons
+                      .map((r) => _MetricRow(r.reason, '${r.count}'))
+                      .toList(),
+            ),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.md),
+        _MetricCard(
+          title: 'Payment Method / Status Aggregates',
+          scheme: scheme,
+          children: m.paymentAggregates.isEmpty
+              ? const [Text('No payments recorded in this range yet.')]
+              : m.paymentAggregates
+                  .map((p) => _MetricRow(
+                      '${p.method} · ${p.status} (${p.count})',
+                      'RM${p.totalMYR.toStringAsFixed(2)}'))
+                  .toList(),
         ),
       ],
     );
