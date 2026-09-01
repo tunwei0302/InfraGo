@@ -137,19 +137,26 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: EdgeInsets.only(
-        left: AppSpacing.gutter,
-        right: AppSpacing.gutter,
-        top: AppSpacing.gutter,
-        bottom: MediaQuery.of(context).viewInsets.bottom + AppSpacing.gutter,
+    return Container(
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: const BorderRadius.vertical(
+          top: Radius.circular(AppRadius.lg),
+        ),
       ),
-      child: SafeArea(
-        top: false,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
+      child: Padding(
+        padding: EdgeInsets.only(
+          left: AppSpacing.gutter,
+          right: AppSpacing.gutter,
+          top: AppSpacing.gutter,
+          bottom: MediaQuery.of(context).viewInsets.bottom + AppSpacing.gutter,
+        ),
+        child: SafeArea(
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
             Center(
               child: Container(
                 width: 40,
@@ -253,7 +260,8 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
                     ),
               child: const Text('Confirm payment method'),
             ),
-          ],
+            ],
+          ),
         ),
       ),
     );

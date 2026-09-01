@@ -60,6 +60,8 @@ class _DriverHubTabState extends State<_DriverHubTab> {
   bool _changingOnline = false;
   String? _actionRideId;
   String? _trackedAssignment;
+  Stream<List<Map<String, dynamic>>>? _rideStream;
+  String? _rideStreamDriverId;
 
   @override
   void initState() {
@@ -182,35 +184,11 @@ class _DriverHubTabState extends State<_DriverHubTab> {
     }
   }
 
-  Future<String?> _askCancellationReason() async {
-    final controller = TextEditingController();
-    final result = await showDialog<String>(
+  Future<String?> _askCancellationReason() {
+    return showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Cancel this ride?'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: const InputDecoration(labelText: 'Reason required'),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Keep ride'),
-          ),
-          FilledButton(
-            onPressed: () {
-              if (controller.text.trim().length >= 3) {
-                Navigator.pop(context, controller.text.trim());
-              }
-            },
-            child: const Text('Cancel ride'),
-          ),
-        ],
-      ),
+      builder: (context) => const _CancellationReasonDialog(),
     );
-    controller.dispose();
-    return result;
   }
 
   @override
@@ -265,13 +243,21 @@ class _DriverHubTabState extends State<_DriverHubTab> {
     );
   }
 
-  Widget _activeRide(String driverId, DriverVehicle? vehicle) {
-    return StreamBuilder<List<Map<String, dynamic>>>(
-      stream: supabase
+  Stream<List<Map<String, dynamic>>> _ridesStreamFor(String driverId) {
+    if (_rideStream == null || _rideStreamDriverId != driverId) {
+      _rideStreamDriverId = driverId;
+      _rideStream = supabase
           .from('rides')
           .stream(primaryKey: ['id'])
           .eq('driver_id', driverId)
-          .order('created_at'),
+          .order('created_at');
+    }
+    return _rideStream!;
+  }
+
+  Widget _activeRide(String driverId, DriverVehicle? vehicle) {
+    return StreamBuilder<List<Map<String, dynamic>>>(
+      stream: _ridesStreamFor(driverId),
       builder: (context, snapshot) {
         if (snapshot.hasError) {
           return Text('Could not load active ride: ${snapshot.error}');
@@ -480,6 +466,54 @@ class _StatusCard extends StatelessWidget {
       ),
     ),
   );
+}
+
+class _CancellationReasonDialog extends StatefulWidget {
+  const _CancellationReasonDialog();
+
+  @override
+  State<_CancellationReasonDialog> createState() =>
+      _CancellationReasonDialogState();
+}
+
+class _CancellationReasonDialogState extends State<_CancellationReasonDialog> {
+  final _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Cancel this ride?'),
+      content: TextField(
+        controller: _controller,
+        autofocus: true,
+        decoration: const InputDecoration(labelText: 'Reason required'),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () {
+            FocusScope.of(context).unfocus();
+            Navigator.pop(context);
+          },
+          child: const Text('Keep ride'),
+        ),
+        FilledButton(
+          onPressed: () {
+            if (_controller.text.trim().length >= 3) {
+              FocusScope.of(context).unfocus();
+              Navigator.pop(context, _controller.text.trim());
+            }
+          },
+          child: const Text('Cancel ride'),
+        ),
+      ],
+    );
+  }
 }
 
 class _RatingSummary extends StatelessWidget {

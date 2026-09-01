@@ -36,6 +36,8 @@ class _ChatWithDriverScreenState extends State<ChatWithDriverScreen> {
   String? _loadError;
   bool _isLoading = true;
   bool _isSending = false;
+  Stream<List<Map<String, dynamic>>>? _messagesStream;
+  String? _messagesStreamRideId;
 
   @override
   void initState() {
@@ -230,14 +232,22 @@ class _ChatWithDriverScreenState extends State<ChatWithDriverScreen> {
     ];
   }
 
+  Stream<List<Map<String, dynamic>>> _messagesStreamFor(String rideId) {
+    if (_messagesStream == null || _messagesStreamRideId != rideId) {
+      _messagesStreamRideId = rideId;
+      _messagesStream = supabase
+          .from('messages')
+          .stream(primaryKey: ['id'])
+          .eq('ride_id', rideId)
+          .order('created_at');
+    }
+    return _messagesStream!;
+  }
+
   Widget _buildMessageList(Ride ride) {
     final currentUserId = supabase.auth.currentUser!.id;
     return StreamBuilder<List<Map<String, dynamic>>>(
-      stream: supabase
-          .from('messages')
-          .stream(primaryKey: ['id'])
-          .eq('ride_id', ride.id)
-          .order('created_at'),
+      stream: _messagesStreamFor(ride.id),
       builder: (context, snapshot) {
         if (snapshot.hasError) {
           return Center(
@@ -415,7 +425,14 @@ class _MessageBubble extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: AppSpacing.xs),
-                Text(message.body),
+                Text(
+                  message.body,
+                  style: TextStyle(
+                    color: isMine
+                        ? colorScheme.onPrimaryContainer
+                        : colorScheme.onSurface,
+                  ),
+                ),
                 if (time != null) ...[
                   const SizedBox(height: AppSpacing.xs),
                   Text(

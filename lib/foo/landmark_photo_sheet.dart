@@ -53,93 +53,105 @@ class _LandmarkPhotoSheetState extends State<LandmarkPhotoSheet> {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: EdgeInsets.only(
-        left: AppSpacing.gutter,
-        right: AppSpacing.gutter,
-        top: AppSpacing.gutter,
-        bottom: MediaQuery.of(context).viewInsets.bottom + AppSpacing.gutter,
+    return Container(
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: const BorderRadius.vertical(
+          top: Radius.circular(AppRadius.lg),
+        ),
       ),
-      child: SafeArea(
-        top: false,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.outlineVariant,
-                  borderRadius: BorderRadius.circular(2),
+      child: Padding(
+        padding: EdgeInsets.only(
+          left: AppSpacing.gutter,
+          right: AppSpacing.gutter,
+          top: AppSpacing.gutter,
+          bottom: MediaQuery.of(context).viewInsets.bottom + AppSpacing.gutter,
+        ),
+        child: SafeArea(
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.outlineVariant,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: AppSpacing.base),
-            Text(
-              'Pickup landmark photo',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: AppSpacing.xs),
-            Text(
-              'Optional — helps your driver find you exactly.',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            const SizedBox(height: AppSpacing.md),
-            if (_photo != null)
-              ClipRRect(
-                borderRadius: BorderRadius.circular(AppRadius.standard),
-                child: Image.memory(
-                  _photo!.bytes,
-                  height: 160,
-                  width: double.infinity,
-                  fit: BoxFit.cover,
-                ),
-              ),
-            if (_error != null) ...[
-              const SizedBox(height: AppSpacing.sm),
+              const SizedBox(height: AppSpacing.base),
               Text(
-                _error!,
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
+                'Pickup landmark photo',
+                style: Theme.of(context).textTheme.titleMedium,
               ),
-            ],
-            const SizedBox(height: AppSpacing.md),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: _isPicking ? null : () => _pick(ImageSource.camera),
-                    icon: const Icon(Icons.camera_alt_outlined),
-                    label: const Text('Camera'),
+              const SizedBox(height: AppSpacing.xs),
+              Text(
+                'Optional — helps your driver find you exactly.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              const SizedBox(height: AppSpacing.md),
+              if (_photo != null)
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(AppRadius.standard),
+                  child: Image.memory(
+                    _photo!.bytes,
+                    height: 160,
+                    width: double.infinity,
+                    fit: BoxFit.cover,
                   ),
                 ),
-                const SizedBox(width: AppSpacing.sm),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: _isPicking
-                        ? null
-                        : () => _pick(ImageSource.gallery),
-                    icon: const Icon(Icons.photo_library_outlined),
-                    label: const Text('Gallery'),
-                  ),
+              if (_error != null) ...[
+                const SizedBox(height: AppSpacing.sm),
+                Text(
+                  _error!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
                 ),
               ],
-            ),
-            if (_photo != null)
-              Align(
-                alignment: Alignment.centerLeft,
-                child: TextButton(
-                  onPressed: _isPicking ? null : () => setState(() => _photo = null),
-                  child: const Text('Remove photo'),
-                ),
+              const SizedBox(height: AppSpacing.md),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: _isPicking
+                          ? null
+                          : () => _pick(ImageSource.camera),
+                      icon: const Icon(Icons.camera_alt_outlined),
+                      label: const Text('Camera'),
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: _isPicking
+                          ? null
+                          : () => _pick(ImageSource.gallery),
+                      icon: const Icon(Icons.photo_library_outlined),
+                      label: const Text('Gallery'),
+                    ),
+                  ),
+                ],
               ),
-            const SizedBox(height: AppSpacing.md),
-            ElevatedButton(
-              onPressed: () => Navigator.of(context).pop(_photo),
-              child: Text(_photo == null ? 'Skip' : 'Continue'),
-            ),
-          ],
+              if (_photo != null)
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton(
+                    onPressed: _isPicking
+                        ? null
+                        : () => setState(() => _photo = null),
+                    child: const Text('Remove photo'),
+                  ),
+                ),
+              const SizedBox(height: AppSpacing.md),
+              ElevatedButton(
+                onPressed: () => Navigator.of(context).pop(_photo),
+                child: Text(_photo == null ? 'Skip' : 'Continue'),
+              ),
+            ],
+          ),
         ),
       ),
     );

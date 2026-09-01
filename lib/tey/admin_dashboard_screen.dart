@@ -186,11 +186,17 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(context).pop(null),
+            onPressed: () {
+              FocusScope.of(context).unfocus();
+              Navigator.of(context).pop(null);
+            },
             child: const Text('Cancel'),
           ),
           ElevatedButton(
-            onPressed: () => Navigator.of(context).pop(controller.text),
+            onPressed: () {
+              FocusScope.of(context).unfocus();
+              Navigator.of(context).pop(controller.text);
+            },
             child: const Text('Submit reason'),
           ),
         ],

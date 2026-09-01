@@ -18,6 +18,10 @@ class _AvailableOrdersScreenState extends State<AvailableOrdersScreen> {
   final _paymentRepository = PaymentRepository(supabase);
   late Future<DriverReadiness> _readiness;
   final Set<String> _accepting = {};
+  late final Stream<List<Map<String, dynamic>>> _ordersStream = supabase
+      .from('rides')
+      .stream(primaryKey: ['id'])
+      .order('created_at');
 
   @override
   void initState() {
@@ -107,10 +111,7 @@ class _AvailableOrdersScreenState extends State<AvailableOrdersScreen> {
 
   Widget _orders(DriverVehicle vehicle) {
     return StreamBuilder<List<Map<String, dynamic>>>(
-      stream: supabase
-          .from('rides')
-          .stream(primaryKey: ['id'])
-          .order('created_at'),
+      stream: _ordersStream,
       builder: (context, snapshot) {
         if (snapshot.hasError) {
           return _Message(
