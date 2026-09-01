@@ -35,6 +35,13 @@ class AppTextStyles {
     fontWeight: FontWeight.w600,
     height: 24 / 18,
   );
+
+  static const TextStyle sectionHeader = TextStyle(
+    fontFamily: 'Inter',
+    fontSize: 18,
+    fontWeight: FontWeight.w600,
+    height: 24 / 18,
+  );
 }
 
 class AppTheme {
