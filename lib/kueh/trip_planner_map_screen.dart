@@ -101,6 +101,7 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
   PaymentMethod? _selectedPaymentMethod;
   int _selectedRewardPoints = 0;
   PickedLandmarkPhoto? _pendingLandmarkPhoto;
+  bool _isPickupConfirmationFlowActive = false;
 
   @override
   void initState() {
@@ -153,13 +154,14 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
         _state.selectedVehicle == null) {
       unawaited(_openVehicleOptionsSheet());
     }
-    if (phase == TripPlannerPhase.pickupConfirmation) {
+    if (phase == TripPlannerPhase.pickupConfirmation &&
+        !_isPickupConfirmationFlowActive) {
       unawaited(_openPickupConfirmationSheet());
     }
   }
 
   String _generateClientRequestId() =>
-      '${DateTime.now().microsecondsSinceEpoch}-${Random().nextInt(1 << 32)}';
+      '${DateTime.now().microsecondsSinceEpoch}-${Random().nextInt(4294967296)}';
 
   Future<void> _handleRequestSubmitted() async {
     final pickup = _state.pickup;
@@ -872,59 +874,70 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
       return;
     }
     if (!mounted) return;
-    final confirmation = await PickupConfirmationSheet.show(
-      context,
-      pickup: pickup,
-      destination: destination,
-      vehicle: vehicle,
-      route: route,
-      passengerCount: _state.passengerCount,
-      scheduledDeparture: _state.scheduledDeparture,
-      transitStopName: vehicle.isShared
-          ? _selectedTransitStop?.stop.name
-          : null,
-    );
-    if (!mounted) return;
-    if (confirmation == null) {
-      if (_state.phase == TripPlannerPhase.pickupConfirmation) _state.goBack();
-      return;
-    }
-    _state.setPickupNote(confirmation.pickupNote);
-
-    if (!mounted) return;
-    _pendingLandmarkPhoto = await LandmarkPhotoSheet.show(
-      context,
-      service: _landmarkService,
-    );
-
-    final quote = FareEstimator.quote(
-      serviceType: FareServiceType.fromDbValue(_databaseServiceType(vehicle)),
-      distanceMeters: route.distanceMeters,
-      durationSeconds: route.durationSeconds,
-    );
-    if (!mounted) return;
-    final selection = await CheckoutSheet.show(
-      context,
-      amount: quote.amount,
-      currency: quote.currency,
-      paymentRepository: _paymentRepository,
-      rewardsRepository: _rewardsRepository,
-    );
-    if (!mounted) return;
-    if (selection == null) {
-      if (_state.phase == TripPlannerPhase.pickupConfirmation) _state.goBack();
-      return;
-    }
-    _selectedPaymentMethod = selection.method;
-    _selectedRewardPoints = selection.rewardPointsToRedeem;
-
-    final ok = await _state.submitRideRequest();
-    if (ok) {
-      _focusSelectedPlaces(pickup.point);
-    } else if (mounted && _state.errorMessage != null) {
-      ScaffoldMessenger.of(
+    _isPickupConfirmationFlowActive = true;
+    try {
+      final confirmation = await PickupConfirmationSheet.show(
         context,
-      ).showSnackBar(SnackBar(content: Text(_state.errorMessage!)));
+        pickup: pickup,
+        destination: destination,
+        vehicle: vehicle,
+        route: route,
+        passengerCount: _state.passengerCount,
+        scheduledDeparture: _state.scheduledDeparture,
+        transitStopName: vehicle.isShared
+            ? _selectedTransitStop?.stop.name
+            : null,
+      );
+      if (!mounted) return;
+      if (confirmation == null) {
+        if (_state.phase == TripPlannerPhase.pickupConfirmation) {
+          _state.goBack();
+        }
+        return;
+      }
+      _state.setPickupNote(confirmation.pickupNote);
+
+      if (!mounted) return;
+      _pendingLandmarkPhoto = await LandmarkPhotoSheet.show(
+        context,
+        service: _landmarkService,
+      );
+
+      final quote = FareEstimator.quote(
+        serviceType: FareServiceType.fromDbValue(
+          _databaseServiceType(vehicle),
+        ),
+        distanceMeters: route.distanceMeters,
+        durationSeconds: route.durationSeconds,
+      );
+      if (!mounted) return;
+      final selection = await CheckoutSheet.show(
+        context,
+        amount: quote.amount,
+        currency: quote.currency,
+        paymentRepository: _paymentRepository,
+        rewardsRepository: _rewardsRepository,
+      );
+      if (!mounted) return;
+      if (selection == null) {
+        if (_state.phase == TripPlannerPhase.pickupConfirmation) {
+          _state.goBack();
+        }
+        return;
+      }
+      _selectedPaymentMethod = selection.method;
+      _selectedRewardPoints = selection.rewardPointsToRedeem;
+
+      final ok = await _state.submitRideRequest();
+      if (ok) {
+        _focusSelectedPlaces(pickup.point);
+      } else if (mounted && _state.errorMessage != null) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(_state.errorMessage!)));
+      }
+    } finally {
+      _isPickupConfirmationFlowActive = false;
     }
   }
 
