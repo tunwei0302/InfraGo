@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:infra_go/shared/app_theme.dart';
 import 'package:infra_go/kueh/location_search_service.dart';
 import 'package:infra_go/kueh/trip_planner_state.dart';
+import 'package:infra_go/weather/route_weather_service.dart';
+import 'package:infra_go/weather/weather_advisory_banner.dart';
 
 class PickupConfirmationResult {
   const PickupConfirmationResult({this.pickupNote});
@@ -25,6 +27,7 @@ class PickupConfirmationSheet extends StatefulWidget {
     this.transitStopName,
     this.isSubmitting = false,
     this.errorMessage,
+    this.weatherAdvisory,
   });
 
   final GeoPlace pickup;
@@ -39,6 +42,7 @@ class PickupConfirmationSheet extends StatefulWidget {
   final String? transitStopName;
   final bool isSubmitting;
   final String? errorMessage;
+  final RouteWeatherAdvisory? weatherAdvisory;
 
   static Future<PickupConfirmationResult?> show(
     BuildContext context, {
@@ -49,6 +53,7 @@ class PickupConfirmationSheet extends StatefulWidget {
     required int passengerCount,
     DateTime? scheduledDeparture,
     String? transitStopName,
+    RouteWeatherAdvisory? weatherAdvisory,
   }) async {
     final noteController = TextEditingController();
     final error = ValueNotifier<String?>(null);
@@ -137,6 +142,7 @@ class PickupConfirmationSheet extends StatefulWidget {
                               passengerCount: passengerCount,
                               scheduledDeparture: scheduledDeparture,
                               transitStopName: transitStopName,
+                              weatherAdvisory: weatherAdvisory,
                             ),
                             const SizedBox(height: AppSpacing.md),
                             Text(
@@ -296,6 +302,7 @@ class _TripSummaryCard extends StatelessWidget {
     required this.passengerCount,
     this.scheduledDeparture,
     this.transitStopName,
+    this.weatherAdvisory,
   });
 
   final VehicleOption vehicle;
@@ -303,6 +310,7 @@ class _TripSummaryCard extends StatelessWidget {
   final int passengerCount;
   final DateTime? scheduledDeparture;
   final String? transitStopName;
+  final RouteWeatherAdvisory? weatherAdvisory;
 
   @override
   Widget build(BuildContext context) {
@@ -360,6 +368,7 @@ class _TripSummaryCard extends StatelessWidget {
                 ),
               ],
             ),
+            WeatherAdvisoryBanner(advisory: weatherAdvisory),
             const SizedBox(height: AppSpacing.base),
             const Divider(height: 1),
             const SizedBox(height: AppSpacing.base),
