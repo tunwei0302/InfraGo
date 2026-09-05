@@ -56,6 +56,33 @@ void main() {
   final search = PhotonLocationSearchService();
 
   group('phase transitions', () {
+    test('assigned driver formats live destination distance', () {
+      const near = AssignedDriverInfo(
+        driverId: 'driver-1',
+        name: 'Ahmad',
+        rating: 4.8,
+        vehicleMake: 'Perodua',
+        vehicleModel: 'Bezza',
+        vehiclePlate: 'WXY 1234',
+        vehicleColor: 'White',
+        etaMinutes: 3,
+        remainingDistanceMeters: 850,
+      );
+      const far = AssignedDriverInfo(
+        driverId: 'driver-1',
+        name: 'Ahmad',
+        rating: 4.8,
+        vehicleMake: 'Perodua',
+        vehicleModel: 'Bezza',
+        vehiclePlate: 'WXY 1234',
+        vehicleColor: 'White',
+        etaMinutes: 8,
+        remainingDistanceMeters: 4200,
+      );
+      expect(near.remainingDistanceLabel, '850 m remaining');
+      expect(far.remainingDistanceLabel, '4.2 km remaining');
+    });
+
     test('starts in explore, advances to routePreview with pickup+dest', () {
       final state = TripPlannerState(routing: _FakeRouting(), search: search);
       expect(state.phase, TripPlannerPhase.explore);

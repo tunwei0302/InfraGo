@@ -89,6 +89,9 @@ class AssignedDriverInfo {
     required this.etaMinutes,
     this.exactLocation,
     this.phoneLastFour,
+    this.remainingDistanceMeters,
+    this.tripProgress,
+    this.isAtPickup = false,
   });
 
   final String driverId;
@@ -101,9 +104,18 @@ class AssignedDriverInfo {
   final int etaMinutes;
   final LatLng? exactLocation;
   final String? phoneLastFour;
+  final double? remainingDistanceMeters;
+  final double? tripProgress;
+  final bool isAtPickup;
 
   String get vehicleSummary => '$vehicleColor $vehicleMake $vehicleModel';
   String get etaLabel => etaMinutes <= 0 ? 'Arriving' : '$etaMinutes min away';
+  String get remainingDistanceLabel {
+    final meters = remainingDistanceMeters;
+    if (meters == null) return 'Calculating distance…';
+    if (meters < 1000) return '${meters.round()} m remaining';
+    return '${(meters / 1000).toStringAsFixed(1)} km remaining';
+  }
 }
 
 class TripPlannerState extends ChangeNotifier {

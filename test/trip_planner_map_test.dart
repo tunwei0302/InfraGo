@@ -22,14 +22,17 @@ void main() {
     expect(distance, lessThan(2000));
   });
 
-  test('driver proximity advances only inside the 100 metre pickup radius', () {
-    const pickup = LatLng(3.139, 101.6869);
-    expect(hasDriverReachedPickup(pickup, pickup), isTrue);
-    expect(
-      hasDriverReachedPickup(const LatLng(3.141, 101.6869), pickup),
-      isFalse,
-    );
-  });
+  test(
+    'driver proximity detects arrival inside the 100 metre pickup radius',
+    () {
+      const pickup = LatLng(3.139, 101.6869);
+      expect(hasDriverReachedPickup(pickup, pickup), isTrue);
+      expect(
+        hasDriverReachedPickup(const LatLng(3.141, 101.6869), pickup),
+        isFalse,
+      );
+    },
+  );
 
   test(
     'live ETA targets pickup before collection and destination after it',

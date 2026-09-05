@@ -11,6 +11,7 @@ class DriverAssignedPanel extends StatelessWidget {
     required this.cancelCountdownSeconds,
     required this.canCancelForFree,
     this.sharedMatchFound = false,
+    this.destinationName,
     this.onContactDriver,
     this.onCancelRide,
     this.onTrackDriver,
@@ -21,6 +22,7 @@ class DriverAssignedPanel extends StatelessWidget {
   final int cancelCountdownSeconds;
   final bool canCancelForFree;
   final bool sharedMatchFound;
+  final String? destinationName;
   final VoidCallback? onContactDriver;
   final VoidCallback? onCancelRide;
   final VoidCallback? onTrackDriver;
@@ -49,7 +51,11 @@ class DriverAssignedPanel extends StatelessWidget {
       );
     }
     if (isEnRoute) {
-      return _EnRouteCard(driver: driver, onContact: onContactDriver);
+      return _EnRouteCard(
+        driver: driver,
+        destinationName: destinationName,
+        onContact: onContactDriver,
+      );
     }
     return const SizedBox.shrink();
   }
@@ -219,7 +225,9 @@ class _AssignedCard extends StatelessWidget {
                             ),
                             const SizedBox(width: AppSpacing.base),
                             Text(
-                              driver.etaLabel,
+                              driver.isAtPickup
+                                  ? 'Driver is at pickup'
+                                  : driver.etaLabel,
                               style: AppTextStyles.labelCaps.copyWith(
                                 color: Theme.of(context).colorScheme.primary,
                               ),
@@ -319,9 +327,14 @@ class _AssignedCard extends StatelessWidget {
 }
 
 class _EnRouteCard extends StatelessWidget {
-  const _EnRouteCard({required this.driver, this.onContact});
+  const _EnRouteCard({
+    required this.driver,
+    this.destinationName,
+    this.onContact,
+  });
 
   final AssignedDriverInfo driver;
+  final String? destinationName;
   final VoidCallback? onContact;
 
   @override
@@ -388,6 +401,52 @@ class _EnRouteCard extends StatelessWidget {
                   color: Theme.of(context).colorScheme.onPrimaryContainer,
                 ),
               ),
+              const SizedBox(height: AppSpacing.gutter),
+              Container(
+                padding: const EdgeInsets.all(AppSpacing.gutter),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surface,
+                  borderRadius: BorderRadius.circular(AppRadius.lg),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      driver.etaMinutes <= 0
+                          ? 'Recalculating arrival…'
+                          : 'About ${driver.etaMinutes} min to destination',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: AppSpacing.xs),
+                    Text(
+                      driver.remainingDistanceLabel,
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                    if (destinationName != null) ...[
+                      const SizedBox(height: AppSpacing.xs),
+                      Text(
+                        'Destination · $destinationName',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                    const SizedBox(height: AppSpacing.sm),
+                    LinearProgressIndicator(
+                      value: driver.tripProgress,
+                      minHeight: 6,
+                      borderRadius: BorderRadius.circular(AppRadius.standard),
+                    ),
+                    const SizedBox(height: AppSpacing.xs),
+                    Text(
+                      driver.etaMinutes <= 0
+                          ? 'Arrival time updates as the driver moves'
+                          : 'Estimated arrival ${_arrivalTime(context, driver.etaMinutes)}',
+                      style: Theme.of(context).textTheme.labelSmall,
+                    ),
+                  ],
+                ),
+              ),
               const SizedBox(height: AppSpacing.base),
               OutlinedButton.icon(
                 style: OutlinedButton.styleFrom(
@@ -410,6 +469,11 @@ class _EnRouteCard extends StatelessWidget {
       ),
     );
   }
+}
+
+String _arrivalTime(BuildContext context, int etaMinutes) {
+  final arrival = DateTime.now().add(Duration(minutes: etaMinutes));
+  return TimeOfDay.fromDateTime(arrival).format(context);
 }
 
 String _fmtCountdown(int totalSeconds) {

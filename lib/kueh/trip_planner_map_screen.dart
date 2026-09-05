@@ -397,6 +397,7 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
         (exact) {
           final current = _state.assignedDriver;
           if (!mounted || exact == null || current == null) return;
+          final pickup = _state.pickup?.point;
           _latestExactDriver = exact;
           _state.markDriverAssigned(
             AssignedDriverInfo(
@@ -410,15 +411,13 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
               etaMinutes: current.etaMinutes,
               exactLocation: exact.exactLocation,
               phoneLastFour: current.phoneLastFour,
+              remainingDistanceMeters: current.remainingDistanceMeters,
+              tripProgress: current.tripProgress,
+              isAtPickup:
+                  pickup != null &&
+                  hasDriverReachedPickup(exact.exactLocation, pickup),
             ),
           );
-          if (_state.phase == TripPlannerPhase.driverAssigned) {
-            final pickup = _state.pickup?.point;
-            if (pickup != null &&
-                hasDriverReachedPickup(exact.exactLocation, pickup)) {
-              _state.markEnRoute();
-            }
-          }
           unawaited(_refreshAssignedDriverEta(exact));
         },
       );
@@ -453,6 +452,11 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
       if (!mounted || current == null || current.driverId != exact.driverId) {
         return;
       }
+      final isEnRoute = _state.phase == TripPlannerPhase.enRoute;
+      final totalDistance = _state.route?.distanceMeters;
+      final progress = isEnRoute && totalDistance != null && totalDistance > 0
+          ? (1 - result.distanceMeters / totalDistance).clamp(0.0, 1.0)
+          : null;
       _state.markDriverAssigned(
         AssignedDriverInfo(
           driverId: current.driverId,
@@ -465,6 +469,9 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
           etaMinutes: (result.durationSeconds / 60).ceil(),
           exactLocation: exact.exactLocation,
           phoneLastFour: current.phoneLastFour,
+          remainingDistanceMeters: result.distanceMeters,
+          tripProgress: progress,
+          isAtPickup: current.isAtPickup,
         ),
       );
     } catch (_) {
@@ -1438,7 +1445,11 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
           ),
           Positioned(
             left: AppSpacing.base,
-            bottom: showAssignedPanel ? 360 : 198,
+            bottom: phase == TripPlannerPhase.enRoute
+                ? 430
+                : showAssignedPanel
+                ? 360
+                : 198,
             child: DecoratedBox(
               decoration: BoxDecoration(
                 color: Theme.of(
@@ -1477,6 +1488,7 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
                 cancelCountdownSeconds: _state.cancelCountdownSeconds,
                 canCancelForFree: _state.canCancelForFree,
                 sharedMatchFound: _state.isSharedMatchedWaitingDriver,
+                destinationName: _state.destination?.name,
                 onContactDriver: _state.assignedDriver != null
                     ? () {
                         Navigator.push(
