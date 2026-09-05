@@ -6,10 +6,17 @@ import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 
 import 'package:infra_go/weather/route_weather_service.dart';
+import 'package:infra_go/weather/weather_location_repository.dart';
 import 'package:infra_go/weather/weather_screen.dart';
 
 Future<(LatLng, String)> _fakeResolveLocation() async =>
     (kWeatherDefaultReferencePoint, kWeatherDefaultReferenceLabel);
+
+/// Widget tests never call `Supabase.initialize`, and constructing a real
+/// `SupabaseClient` spins up a GoTrue auto-refresh timer that would outlive
+/// the test — so this stubs every operation and passes no client at all.
+WeatherLocationRepository _fakeLocationRepository() =>
+    WeatherLocationRepository(null, selectAll: () async => const []);
 
 http.Response _openMeteoResponse({
   double precipitation = 0,
@@ -40,6 +47,7 @@ void main() {
         MaterialApp(home: WeatherScreen(
           service: service,
           resolveLocation: _fakeResolveLocation,
+          locationRepository: _fakeLocationRepository(),
         )),
       );
       await tester.pumpAndSettle();
@@ -61,6 +69,7 @@ void main() {
       MaterialApp(home: WeatherScreen(
           service: service,
           resolveLocation: _fakeResolveLocation,
+          locationRepository: _fakeLocationRepository(),
         )),
     );
     await tester.pumpAndSettle();
@@ -78,6 +87,7 @@ void main() {
       MaterialApp(home: WeatherScreen(
           service: service,
           resolveLocation: _fakeResolveLocation,
+          locationRepository: _fakeLocationRepository(),
         )),
     );
     await tester.pumpAndSettle();
