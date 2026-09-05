@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:geolocator/geolocator.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class DriverPresenceException implements Exception {
@@ -16,8 +17,16 @@ class DriverPresenceService {
   final SupabaseClient _client;
   Timer? _timer;
   bool _publishing = false;
+  LatLng? _lastKnownPosition;
+  DateTime? _lastKnownPositionAt;
 
   bool get isRunning => _timer != null;
+  LatLng? get lastKnownPosition => _lastKnownPosition;
+  DateTime? get lastKnownPositionAt => _lastKnownPositionAt;
+  bool get hasFreshPosition =>
+      _lastKnownPosition != null &&
+      _lastKnownPositionAt != null &&
+      DateTime.now().difference(_lastKnownPositionAt!).abs().inSeconds <= 60;
 
   Future<void> start({required List<String> vehicleCategories}) async {
     await _ensurePermission();
@@ -67,6 +76,8 @@ class DriverPresenceService {
           timeLimit: Duration(seconds: 10),
         ),
       );
+      _lastKnownPosition = LatLng(position.latitude, position.longitude);
+      _lastKnownPositionAt = DateTime.now();
       await _client.rpc(
         'upsert_my_driver_presence',
         params: {
@@ -95,6 +106,8 @@ class DriverPresenceService {
           timeLimit: Duration(seconds: 10),
         ),
       );
+      _lastKnownPosition = LatLng(position.latitude, position.longitude);
+      _lastKnownPositionAt = DateTime.now();
       for (final rideId in rideIds) {
         await _client.rpc(
           'publish_assigned_driver_location',

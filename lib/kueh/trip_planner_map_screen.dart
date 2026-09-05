@@ -31,6 +31,7 @@ import 'package:infra_go/kueh/trip_planner_repository.dart';
 import 'package:infra_go/kueh/trip_planner_state.dart';
 import 'package:infra_go/kueh/vehicle_options_sheet.dart';
 import 'package:infra_go/kueh/vehicle_presence_service.dart';
+import 'package:infra_go/weather/route_weather_service.dart';
 
 const LatLng kKualaLumpurCenter = LatLng(3.1390, 101.6869);
 
@@ -113,6 +114,8 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
   late final PaymentRepository _paymentRepository;
   late final RewardsRepository _rewardsRepository;
   late final PickupLandmarkService _landmarkService;
+  late final RouteWeatherService _weatherService;
+  RouteWeatherAdvisory? _weatherAdvisory;
   String _presenceCategory = 'economy_4';
   PaymentMethod? _selectedPaymentMethod;
   int _selectedRewardPoints = 0;
@@ -134,6 +137,7 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
     _rideBookingRepository = RideBookingRepository(supabase);
     _paymentRepository = PaymentRepository(supabase);
     _landmarkService = PickupLandmarkService();
+    _weatherService = RouteWeatherService();
     _rewardsRepository = RewardsRepository(supabase);
     _carpoolService = SupabaseCarpoolService(
       client: supabase,
@@ -950,6 +954,24 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
     );
   }
 
+  Future<void> _refreshWeatherAdvisory() async {
+    final pickup = _state.pickup;
+    final destination = _state.destination;
+    if (pickup == null || destination == null) return;
+    try {
+      _weatherAdvisory = await _weatherService.fetchRouteAdvisory(
+        pickup: pickup.point,
+        destination: destination.point,
+        pickupLabel: pickup.name,
+        destinationLabel: destination.name,
+      );
+    } catch (_) {
+      // Weather is an optional, non-blocking hint — a failed fetch just
+      // means the pickup-confirmation banner stays hidden.
+      _weatherAdvisory = null;
+    }
+  }
+
   Future<void> _openVehicleOptionsSheet() async {
     final route = _state.route;
     if (route == null) {
@@ -978,6 +1000,9 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
     }
     final options = _vehicleOptionsForRoute(route);
     if (!mounted) return;
+    // Kicked off here (not awaited) so it has the time the user spends
+    // picking a vehicle to resolve before reaching pickup confirmation.
+    unawaited(_refreshWeatherAdvisory());
     final summary = '${route.distanceText} · ${route.etaText}';
     final selection = await VehicleOptionsSheet.show(
       context,
@@ -1025,6 +1050,7 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
         transitStopName: vehicle.isShared
             ? _selectedTransitStop?.stop.name
             : null,
+        weatherAdvisory: _weatherAdvisory,
       );
       if (!mounted) return;
       if (confirmation == null) {

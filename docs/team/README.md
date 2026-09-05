@@ -91,6 +91,22 @@ matched shared = economy x 0.75
 - After assignment, only trip participants read exact foreground location.
 - Label seeded cars as demo availability; never fake random cars as live.
 
+## Weather & Route Risk Advisory
+
+- Data source: Open-Meteo (live, free, no API key) — a different, third-party
+  source from the data.gov.my datasets used elsewhere; UI must label it
+  accordingly and never attribute it to data.gov.my.
+- Risk thresholds (`lib/weather/route_weather_service.dart`) are a coursework
+  estimate, not an official MetMalaysia rainfall-warning classification:
+  - `caution`: precipitation ≥ 5 mm/h, or wind ≥ 50 km/h.
+  - `high`: precipitation ≥ 20 mm/h.
+- The pickup-confirmation banner is purely advisory: it renders nothing while
+  loading or on fetch failure, and never blocks "Confirm and find a driver".
+- MVP ships with no Supabase table for this feature, so there is no RLS
+  surface to review.
+- Not yet assigned an owner in the table above; add it there (and a
+  `<NAME>_TASKS.md` doc) once a member claims it.
+
 ## Contact Driver
 
 - Hidden before `driver_id` exists.

@@ -22,7 +22,7 @@ void main() {
     await tester.tap(find.text('Create an account'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Create Account'), findsOneWidget);
+    expect(find.text('Join InfraGo'), findsOneWidget);
   });
 
   testWidgets('Sign up screen shows validation errors on empty submit',
