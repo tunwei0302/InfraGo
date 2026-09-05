@@ -5,6 +5,17 @@ enum ChatParticipantRole { rider, driver }
 class ChatLifecyclePolicy {
   const ChatLifecyclePolicy();
 
+  TripPlannerPhase phaseForRideStatus(String status) => switch (status) {
+    'driver_assigned' => TripPlannerPhase.driverAssigned,
+    'en_route' => TripPlannerPhase.enRoute,
+    'completed' => TripPlannerPhase.completed,
+    'cancelled' => TripPlannerPhase.cancelled,
+    'requested' ||
+    'waiting_match' ||
+    'matched' => TripPlannerPhase.searchingDriver,
+    _ => TripPlannerPhase.explore,
+  };
+
   bool isContactVisible({required String? assignedDriverId}) =>
       assignedDriverId != null;
 

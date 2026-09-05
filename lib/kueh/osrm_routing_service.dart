@@ -304,3 +304,45 @@ double haversineMeters(LatLng a, LatLng b) {
       s1 * s1 + math.cos(a.latitudeInRad) * math.cos(b.latitudeInRad) * s2 * s2;
   return 2 * r * math.asin(math.sqrt(h));
 }
+
+// Peninsular Malaysia (West Malaysia / Semenanjung) bounding box.
+// Covers the full peninsula plus a sensible coastal buffer; excludes East
+// Malaysia (Sarawak / Sabah) which is on Borneo and would make no sense for
+// a local urban ride-hail trip.
+const double kPeninsularMyMinLat = 0.8;
+const double kPeninsularMyMaxLat = 7.6;
+const double kPeninsularMyMinLng = 99.5;
+const double kPeninsularMyMaxLng = 105.0;
+
+/// Photon bbox in the required order: minLon,minLat,maxLon,maxLat.
+/// Must match the kPeninsularMyMin/Max values above; written as a literal
+/// because const contexts cannot invoke toStringAsFixed().
+const String kPeninsularMyPhotonBbox = '99.50,0.80,105.00,7.60';
+
+/// Returns true when [point] lies within the Peninsular Malaysia rectangle.
+bool isInsidePeninsularMalaysia(LatLng point) {
+  final lat = point.latitude;
+  final lng = point.longitude;
+  return lat >= kPeninsularMyMinLat &&
+      lat <= kPeninsularMyMaxLat &&
+      lng >= kPeninsularMyMinLng &&
+      lng <= kPeninsularMyMaxLng;
+}
+
+/// Human-readable label for the allowed ride area, reused in error messages.
+const String kPeninsularMyAreaLabel = 'Peninsular Malaysia';
+
+/// Maximum road distance for a single booking; above this a ride-hail trip
+/// is not economically reasonable and the rider must use intercity transport.
+const double kMaximumRideDistanceMeters = 200 * 1000; // 200 km
+
+/// Error message shown when a pickup/destination is outside the allowed area.
+const String kErrorOutsideMyRegion =
+    'Pickup and destination can only be within $kPeninsularMyAreaLabel.';
+
+/// Error message shown when computed route distance exceeds the cap.
+String kErrorRideTooFar(double distanceMeters) {
+  final km = (distanceMeters / 1000).toStringAsFixed(0);
+  final capKm = (kMaximumRideDistanceMeters / 1000).toStringAsFixed(0);
+  return 'This ride is $km km, which exceeds the $capKm km limit. Try a shorter trip or split the journey.';
+}

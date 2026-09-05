@@ -37,6 +37,17 @@ class _FailingRouting extends OsrmRoutingService {
 
 GeoPlace _place(LatLng p, String name) => GeoPlace.coordinate(p, name: name);
 
+AssignedDriverInfo _driver() => const AssignedDriverInfo(
+  driverId: 'driver-1',
+  name: 'Ahmad',
+  rating: 4.8,
+  vehicleMake: 'Perodua',
+  vehicleModel: 'Bezza',
+  vehiclePlate: 'WXY 1234',
+  vehicleColor: 'White',
+  etaMinutes: 3,
+);
+
 void main() {
   const pickupPoint = LatLng(3.139, 101.6869);
   const destPoint = LatLng(3.1579, 101.7132);
@@ -169,6 +180,34 @@ void main() {
       expect(state.searchingSince, isNotNull);
       state.dispose();
     });
+
+    test(
+      'shared match records group while continuing to wait for driver',
+      () async {
+        final state = TripPlannerState(routing: _FakeRouting(), search: search);
+        state.setPickup(pickup);
+        state.setDestination(destination);
+        state.selectVehicle(
+          const VehicleOption(
+            id: 'shared_economy',
+            name: 'Shared',
+            seats: 4,
+            isShared: true,
+          ),
+        );
+        state.proceedToPickupConfirmation();
+        await state.submitRideRequest();
+
+        state.markSharedMatched('group-123');
+
+        expect(state.phase, TripPlannerPhase.searchingDriver);
+        expect(state.activeRideGroupId, 'group-123');
+        expect(state.isSharedMatchedWaitingDriver, isTrue);
+        state.markDriverAssigned(_driver());
+        expect(state.isSharedMatchedWaitingDriver, isFalse);
+        state.dispose();
+      },
+    );
 
     test('submit fails without vehicle selection', () async {
       final state = TripPlannerState(routing: _FakeRouting(), search: search);

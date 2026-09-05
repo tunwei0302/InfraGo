@@ -10,6 +10,7 @@ class DriverAssignedPanel extends StatelessWidget {
     required this.phase,
     required this.cancelCountdownSeconds,
     required this.canCancelForFree,
+    this.sharedMatchFound = false,
     this.onContactDriver,
     this.onCancelRide,
     this.onTrackDriver,
@@ -19,6 +20,7 @@ class DriverAssignedPanel extends StatelessWidget {
   final TripPlannerPhase phase;
   final int cancelCountdownSeconds;
   final bool canCancelForFree;
+  final bool sharedMatchFound;
   final VoidCallback? onContactDriver;
   final VoidCallback? onCancelRide;
   final VoidCallback? onTrackDriver;
@@ -32,6 +34,7 @@ class DriverAssignedPanel extends StatelessWidget {
     if (isSearching) {
       return _SearchingCard(
         canCancelForFree: canCancelForFree,
+        sharedMatchFound: sharedMatchFound,
         onCancel: onCancelRide,
       );
     }
@@ -53,9 +56,14 @@ class DriverAssignedPanel extends StatelessWidget {
 }
 
 class _SearchingCard extends StatelessWidget {
-  const _SearchingCard({required this.canCancelForFree, this.onCancel});
+  const _SearchingCard({
+    required this.canCancelForFree,
+    required this.sharedMatchFound,
+    this.onCancel,
+  });
 
   final bool canCancelForFree;
+  final bool sharedMatchFound;
   final VoidCallback? onCancel;
 
   @override
@@ -92,7 +100,9 @@ class _SearchingCard extends StatelessWidget {
                   const SizedBox(width: AppSpacing.base),
                   Expanded(
                     child: Text(
-                      'Finding drivers near you…',
+                      sharedMatchFound
+                          ? 'Matched — waiting for a driver…'
+                          : 'Finding drivers near you…',
                       style: Theme.of(context).textTheme.titleMedium,
                     ),
                   ),
@@ -111,7 +121,9 @@ class _SearchingCard extends StatelessWidget {
                   Expanded(
                     child: Text(
                       canCancelForFree
-                          ? 'Cancel free while searching'
+                          ? sharedMatchFound
+                                ? 'Rider match confirmed · cancel free while waiting'
+                                : 'Cancel free while searching'
                           : 'Cancellation fees may apply',
                       style: Theme.of(context).textTheme.bodySmall,
                     ),

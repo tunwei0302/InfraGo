@@ -120,6 +120,7 @@ class TripPlannerState extends ChangeNotifier {
   int _passengerCount = 1;
   DateTime? _scheduledDeparture;
   String? _activeRideId;
+  String? _activeRideGroupId;
   AssignedDriverInfo? _assignedDriver;
   String? _pickupNote;
   String? _errorMessage;
@@ -144,6 +145,9 @@ class TripPlannerState extends ChangeNotifier {
   DateTime? get scheduledDeparture => _scheduledDeparture;
   DateTime get effectiveDeparture => _scheduledDeparture ?? DateTime.now();
   String? get activeRideId => _activeRideId;
+  String? get activeRideGroupId => _activeRideGroupId;
+  bool get isSharedMatchedWaitingDriver =>
+      _activeRideGroupId != null && _assignedDriver == null;
   AssignedDriverInfo? get assignedDriver => _assignedDriver;
   String? get pickupNote => _pickupNote;
   String? get errorMessage => _errorMessage;
@@ -226,6 +230,13 @@ class TripPlannerState extends ChangeNotifier {
 
   void setActiveRideId(String rideId) {
     _activeRideId = rideId;
+    _activeRideGroupId = null;
+  }
+
+  void markSharedMatched(String groupId) {
+    if (groupId.isEmpty || _phase != TripPlannerPhase.searchingDriver) return;
+    _activeRideGroupId = groupId;
+    notifyListeners();
   }
 
   void proceedToPickupConfirmation() {
@@ -307,6 +318,7 @@ class TripPlannerState extends ChangeNotifier {
     _passengerCount = 1;
     _scheduledDeparture = null;
     _activeRideId = null;
+    _activeRideGroupId = null;
     _assignedDriver = null;
     _pickupNote = null;
     _errorMessage = null;
@@ -376,15 +388,23 @@ class TripPlannerState extends ChangeNotifier {
           _destination != destination) {
         return;
       }
-      _route = TripPlanRoute(
-        points: result.points,
-        distanceMeters: result.distanceMeters,
-        durationSeconds: result.durationSeconds,
-      );
-      if (_phase == TripPlannerPhase.explore) {
-        _phase = TripPlannerPhase.routePreview;
+      if (result.distanceMeters > kMaximumRideDistanceMeters) {
+        _route = null;
+        _errorMessage = kErrorRideTooFar(result.distanceMeters);
+        if (_phase == TripPlannerPhase.routePreview) {
+          _phase = TripPlannerPhase.explore;
+        }
+      } else {
+        _route = TripPlanRoute(
+          points: result.points,
+          distanceMeters: result.distanceMeters,
+          durationSeconds: result.durationSeconds,
+        );
+        if (_phase == TripPlannerPhase.explore) {
+          _phase = TripPlannerPhase.routePreview;
+        }
+        _errorMessage = null;
       }
-      _errorMessage = null;
     } on RoutingException catch (e) {
       if (_disposed || requestGeneration != _routeRequestGeneration) return;
       _errorMessage = e.message;

@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 
+import 'osrm_routing_service.dart';
+
 class GeoPlace {
   const GeoPlace({
     required this.name,
@@ -106,6 +108,7 @@ class PhotonLocationSearchService {
       'q': normalized,
       'limit': '10',
       'lang': 'en',
+      'bbox': kPeninsularMyPhotonBbox,
     };
     if (near != null) {
       parameters['lat'] = near.latitude.toString();
@@ -113,7 +116,7 @@ class PhotonLocationSearchService {
     }
 
     final uri = Uri.https('photon.komoot.io', '/api/', parameters);
-    final places = await _getPlaces(uri);
+    final places = await _getPlaces(uri, filterToRegion: true);
     if (_cache.length >= 50) {
       _cache.clear();
     }
@@ -127,11 +130,14 @@ class PhotonLocationSearchService {
       'lon': point.longitude.toString(),
       'lang': 'en',
     });
-    final places = await _getPlaces(uri);
+    final places = await _getPlaces(uri, filterToRegion: false);
     return places.isEmpty ? null : places.first;
   }
 
-  Future<List<GeoPlace>> _getPlaces(Uri uri) async {
+  Future<List<GeoPlace>> _getPlaces(
+    Uri uri, {
+    required bool filterToRegion,
+  }) async {
     try {
       final response = await _client
           .get(
@@ -150,10 +156,15 @@ class PhotonLocationSearchService {
 
       final payload = jsonDecode(response.body) as Map<String, dynamic>;
       final features = payload['features'] as List<dynamic>? ?? const [];
-      final parsed = features
+      var parsed = features
           .whereType<Map<String, dynamic>>()
           .map(GeoPlace.fromPhotonFeature)
           .toList(growable: false);
+      if (filterToRegion) {
+        parsed = parsed
+            .where((place) => isInsidePeninsularMalaysia(place.point))
+            .toList(growable: false);
+      }
       final seen = <String>{};
       return parsed
           .where((place) => seen.add(place.bookingLabel.toLowerCase()))

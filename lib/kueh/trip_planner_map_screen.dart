@@ -45,6 +45,19 @@ double straightLineDistanceMeters(LatLng origin, LatLng destination) =>
       destination.longitude,
     );
 
+bool hasDriverReachedPickup(LatLng driver, LatLng pickup) =>
+    haversineMeters(driver, pickup) <= 100;
+
+LatLng? assignedDriverEtaTarget({
+  required TripPlannerPhase phase,
+  required LatLng? pickup,
+  required LatLng? destination,
+}) => switch (phase) {
+  TripPlannerPhase.driverAssigned => pickup,
+  TripPlannerPhase.enRoute => destination,
+  _ => null,
+};
+
 enum _MapEditTarget { pickup, destination }
 
 enum _TransitStatus { idle, loading, data, empty, error }
@@ -76,6 +89,9 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
   StreamSubscription<List<CoarseVehicle>>? _nearbySubscription;
   StreamSubscription<RideLifecycleSnapshot>? _assignedSubscription;
   StreamSubscription<ExactDriver?>? _exactDriverSubscription;
+  Timer? _driverEtaRefreshTimer;
+  ExactDriver? _latestExactDriver;
+  bool _driverEtaRefreshInFlight = false;
 
   LatLng? _currentLocation;
   String? _locationMessage;
@@ -141,6 +157,8 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
     _startLocationTracking();
   }
 
+  String? _lastShimmerError;
+
   void _onStateChanged() {
     if (!mounted) return;
     final phase = _state.phase;
@@ -150,6 +168,18 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
         _currentMatch = null;
       }
     });
+    final errorMessage = _state.errorMessage;
+    if (errorMessage != null && errorMessage != _lastShimmerError) {
+      _lastShimmerError = errorMessage;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(errorMessage),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } else if (errorMessage == null) {
+      _lastShimmerError = null;
+    }
     if (phase == TripPlannerPhase.vehicleOptions &&
         _state.selectedVehicle == null) {
       unawaited(_openVehicleOptionsSheet());
@@ -302,6 +332,8 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
     _nearbySubscription?.cancel();
     _assignedSubscription?.cancel();
     _exactDriverSubscription?.cancel();
+    _driverEtaRefreshTimer?.cancel();
+    _latestExactDriver = null;
   }
 
   void _watchRide(String rideId) {
@@ -356,10 +388,12 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
       if (!mounted || _state.activeRideId != rideId) return;
       _state.markDriverAssigned(driver);
       await _exactDriverSubscription?.cancel();
+      _driverEtaRefreshTimer?.cancel();
       _exactDriverSubscription = _presence.exactAssigned(rideId: rideId).listen(
         (exact) {
           final current = _state.assignedDriver;
           if (!mounted || exact == null || current == null) return;
+          _latestExactDriver = exact;
           _state.markDriverAssigned(
             AssignedDriverInfo(
               driverId: current.driverId,
@@ -374,13 +408,65 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
               phoneLastFour: current.phoneLastFour,
             ),
           );
+          if (_state.phase == TripPlannerPhase.driverAssigned) {
+            final pickup = _state.pickup?.point;
+            if (pickup != null &&
+                hasDriverReachedPickup(exact.exactLocation, pickup)) {
+              _state.markEnRoute();
+            }
+          }
+          unawaited(_refreshAssignedDriverEta(exact));
         },
       );
+      _driverEtaRefreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+        final exact = _latestExactDriver;
+        if (exact != null) unawaited(_refreshAssignedDriverEta(exact));
+      });
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Driver details unavailable: $error')),
       );
+    }
+  }
+
+  Future<void> _refreshAssignedDriverEta(ExactDriver exact) async {
+    if (_driverEtaRefreshInFlight || !mounted) return;
+    final target = assignedDriverEtaTarget(
+      phase: _state.phase,
+      pickup: _state.pickup?.point,
+      destination: _state.destination?.point,
+    );
+    if (target == null) return;
+    _driverEtaRefreshInFlight = true;
+    try {
+      final result = await _routing.route(
+        exact.exactLocation,
+        target,
+        useCache: false,
+      );
+      final current = _state.assignedDriver;
+      if (!mounted || current == null || current.driverId != exact.driverId) {
+        return;
+      }
+      _state.markDriverAssigned(
+        AssignedDriverInfo(
+          driverId: current.driverId,
+          name: current.name,
+          rating: current.rating,
+          vehicleMake: current.vehicleMake,
+          vehicleModel: current.vehicleModel,
+          vehiclePlate: exact.vehiclePlate,
+          vehicleColor: current.vehicleColor,
+          etaMinutes: (result.durationSeconds / 60).ceil(),
+          exactLocation: exact.exactLocation,
+          phoneLastFour: current.phoneLastFour,
+        ),
+      );
+    } catch (_) {
+      // Keep the most recent valid ETA when OSRM is temporarily unavailable.
+    } finally {
+      _driverEtaRefreshInFlight = false;
     }
   }
 
@@ -419,8 +505,9 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
         ),
       );
       if (accepted != true || !mounted) return;
-      await _carpoolService.commitMatch(match);
+      final groupId = await _carpoolService.commitMatch(match);
       if (!mounted) return;
+      _state.markSharedMatched(groupId);
       setState(() => _currentMatch = match);
       _focusSelectedPlaces(pickup.point);
       ScaffoldMessenger.of(context).showSnackBar(
@@ -616,6 +703,7 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
     _nearbySubscription?.cancel();
     _assignedSubscription?.cancel();
     _exactDriverSubscription?.cancel();
+    _driverEtaRefreshTimer?.cancel();
     _state.removeListener(_onStateChanged);
     _state.dispose();
     _locationSearch.close();
@@ -682,19 +770,25 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
   void _applyPosition(Position position, {bool moveMap = false}) {
     if (!mounted) return;
     final point = LatLng(position.latitude, position.longitude);
-    final shouldSetPickup = _state.pickup == null;
+    final inRegion = isInsidePeninsularMalaysia(point);
     setState(() {
-      _currentLocation = point;
+      _currentLocation = inRegion ? point : null;
       _isLocating = false;
-      _locationMessage = null;
+      _locationMessage = inRegion
+          ? null
+          : 'Your current location is outside $kPeninsularMyAreaLabel. '
+                'Select a point on the map instead.';
     });
-    if (shouldSetPickup) {
-      final place = GeoPlace.coordinate(point, name: 'Current location');
-      _state.setPickup(place);
-      unawaited(_resolvePin(point, _MapEditTarget.pickup));
+    if (inRegion) {
+      final shouldSetPickup = _state.pickup == null;
+      if (shouldSetPickup) {
+        final place = GeoPlace.coordinate(point, name: 'Current location');
+        _state.setPickup(place);
+        unawaited(_resolvePin(point, _MapEditTarget.pickup));
+      }
+      if (moveMap) _moveTo(point);
+      _subscribeNearby(point);
     }
-    if (moveMap) _moveTo(point);
-    _subscribeNearby(point);
   }
 
   void _subscribeNearby(LatLng center) {
@@ -758,6 +852,10 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
       await _startLocationTracking();
       return;
     }
+    if (!isInsidePeninsularMalaysia(point)) {
+      _showRegionSnackBar();
+      return;
+    }
     final place = GeoPlace.coordinate(point, name: 'Current location');
     _clearTransitSelection();
     _state.setPickup(place);
@@ -767,6 +865,10 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
   }
 
   void _selectPointOnMap(TapPosition _, LatLng point) {
+    if (!isInsidePeninsularMalaysia(point)) {
+      _showRegionSnackBar();
+      return;
+    }
     final target = _mapEditTarget;
     final place = GeoPlace.coordinate(point);
     if (target == _MapEditTarget.pickup) {
@@ -823,6 +925,10 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
       ),
     );
     if (place == null || !mounted) return;
+    if (!isInsidePeninsularMalaysia(place.point)) {
+      _showRegionSnackBar();
+      return;
+    }
     if (target == _MapEditTarget.pickup) {
       _clearTransitSelection();
       _state.setPickup(place);
@@ -834,13 +940,45 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
     _focusSelectedPlaces(place.point);
   }
 
+  void _showRegionSnackBar() {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(kErrorOutsideMyRegion),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
   Future<void> _openVehicleOptionsSheet() async {
     final route = _state.route;
+    if (route == null) {
+      if (mounted && _state.errorMessage != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(_state.errorMessage!),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      if (_state.phase == TripPlannerPhase.vehicleOptions) _state.goBack();
+      return;
+    }
+    if (route.distanceMeters > kMaximumRideDistanceMeters) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(kErrorRideTooFar(route.distanceMeters)),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      if (_state.phase == TripPlannerPhase.vehicleOptions) _state.goBack();
+      return;
+    }
     final options = _vehicleOptionsForRoute(route);
     if (!mounted) return;
-    final summary = route == null
-        ? null
-        : '${route.distanceText} · ${route.etaText}';
+    final summary = '${route.distanceText} · ${route.etaText}';
     final selection = await VehicleOptionsSheet.show(
       context,
       options: options,
@@ -904,9 +1042,7 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
       );
 
       final quote = FareEstimator.quote(
-        serviceType: FareServiceType.fromDbValue(
-          _databaseServiceType(vehicle),
-        ),
+        serviceType: FareServiceType.fromDbValue(_databaseServiceType(vehicle)),
         distanceMeters: route.distanceMeters,
         durationSeconds: route.durationSeconds,
       );
@@ -981,6 +1117,8 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
   }
 
   void _resetPlanner() {
+    _driverEtaRefreshTimer?.cancel();
+    _latestExactDriver = null;
     _clearTransitSelection();
     _state.resetToExplore(keepPickup: _state.pickup);
   }
@@ -1312,6 +1450,7 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
                 phase: phase,
                 cancelCountdownSeconds: _state.cancelCountdownSeconds,
                 canCancelForFree: _state.canCancelForFree,
+                sharedMatchFound: _state.isSharedMatchedWaitingDriver,
                 onContactDriver: _state.assignedDriver != null
                     ? () {
                         Navigator.push(
@@ -2019,20 +2158,23 @@ class _TripSummaryPanel extends StatelessWidget {
                           ? 'No cars nearby'
                           : '$nearbyDriverCount cars nearby',
                     ),
-                    const SizedBox(width: AppSpacing.xs),
-                    Tooltip(
-                      message: transitError ?? 'Show nearby official stops',
-                      child: ActionChip(
-                        avatar: Icon(
-                          selectedTransitName == null
-                              ? Icons.directions_transit
-                              : Icons.check_circle,
-                          size: 17,
+                    if (!(transitStatus == _TransitStatus.empty &&
+                        selectedTransitName == null)) ...[
+                      const SizedBox(width: AppSpacing.xs),
+                      Tooltip(
+                        message: transitError ?? 'Show nearby official stops',
+                        child: ActionChip(
+                          avatar: Icon(
+                            selectedTransitName == null
+                                ? Icons.directions_transit
+                                : Icons.check_circle,
+                            size: 17,
+                          ),
+                          label: Text(transitLabel),
+                          onPressed: onTransitTap,
                         ),
-                        label: Text(transitLabel),
-                        onPressed: onTransitTap,
                       ),
-                    ),
+                    ],
                   ],
                 ),
               ),
