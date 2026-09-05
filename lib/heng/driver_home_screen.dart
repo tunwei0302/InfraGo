@@ -4,8 +4,10 @@ import 'package:flutter/material.dart';
 
 import 'package:infra_go/foo/payment_repository.dart';
 import 'package:infra_go/heng/available_orders_screen.dart';
+import 'package:infra_go/heng/driver_inbox_screen.dart';
 import 'package:infra_go/heng/driver_models.dart';
 import 'package:infra_go/heng/driver_onboarding_screen.dart';
+import 'package:infra_go/heng/driver_pickup_navigation_screen.dart';
 import 'package:infra_go/heng/driver_presence_service.dart';
 import 'package:infra_go/heng/driver_repository.dart';
 import 'package:infra_go/kueh/chat_with_driver_screen.dart';
@@ -26,6 +28,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
   static const _pages = <Widget>[
     _DriverHubTab(),
     AvailableOrdersScreen(),
+    DriverInboxScreen(),
     UserProfileScreen(),
   ];
 
@@ -38,6 +41,11 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
       items: const [
         BottomNavigationBarItem(icon: Icon(Icons.local_taxi), label: 'Hub'),
         BottomNavigationBarItem(icon: Icon(Icons.list_alt), label: 'Orders'),
+        BottomNavigationBarItem(
+          icon: Icon(Icons.chat_bubble_outline),
+          activeIcon: Icon(Icons.chat_bubble),
+          label: 'Messages',
+        ),
         BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Profile'),
       ],
     ),
@@ -125,12 +133,14 @@ class _DriverHubTabState extends State<_DriverHubTab> {
 
   Future<void> _transition(Map<String, dynamic> ride, String nextStatus) async {
     final rideId = ride['id'].toString();
+    final groupId = ride['group_id']?.toString();
+    final actionKey = groupId ?? rideId;
     String? cancellationReason;
     if (nextStatus == 'cancelled') {
       cancellationReason = await _askCancellationReason();
       if (cancellationReason == null) return;
     }
-    setState(() => _actionRideId = rideId);
+    setState(() => _actionRideId = actionKey);
     try {
       final result = await _repository.transitionRide(
         rideId,
@@ -158,6 +168,34 @@ class _DriverHubTabState extends State<_DriverHubTab> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Could not update ride: $error')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _actionRideId = null);
+    }
+  }
+
+  Future<void> _advanceStop(String groupId) async {
+    setState(() => _actionRideId = groupId);
+    try {
+      final result = await _repository.advanceGroupStop(groupId);
+      if (result['success'] != true) {
+        throw StateError(result['reason']?.toString() ?? 'advance_failed');
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Stop ${(result['current_stop_idx'] as int) + 1} logged — '
+              '${result['is_pickup_stop'] == true ? 'Pickup' : 'Drop off'} complete.',
+            ),
+          ),
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not log stop: $error')),
         );
       }
     } finally {
@@ -262,14 +300,14 @@ class _DriverHubTabState extends State<_DriverHubTab> {
         if (snapshot.hasError) {
           return Text('Could not load active ride: ${snapshot.error}');
         }
-        final rides = (snapshot.data ?? [])
+        final groupRides = (snapshot.data ?? [])
             .where(
               (row) =>
                   row['status'] == 'driver_assigned' ||
                   row['status'] == 'en_route',
             )
             .toList();
-        if (rides.isEmpty) {
+        if (groupRides.isEmpty) {
           return const Card(
             child: Padding(
               padding: EdgeInsets.all(AppSpacing.gutter),
@@ -279,73 +317,127 @@ class _DriverHubTabState extends State<_DriverHubTab> {
             ),
           );
         }
-        final ride = rides.first;
-        final status = ride['status'].toString();
-        final isBusy = _actionRideId == ride['id'].toString();
-        _scheduleAssignedTracking(ride);
+        final lead = groupRides.first;
+        final groupId = lead['group_id']?.toString();
+        final isShared = groupId != null;
+        final status = lead['status'].toString();
+        final actionKey = groupId ?? lead['id'].toString();
+        final isBusy = _actionRideId == actionKey;
+        _scheduleAssignedTracking(lead);
         return Card(
           child: Padding(
             padding: const EdgeInsets.all(AppSpacing.gutter),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (ride['group_id'] != null)
+                if (isShared)
                   const Chip(
                     avatar: Icon(Icons.groups_2, size: 17),
                     label: Text('Shared ride · ordered stops'),
                   ),
                 Text(
-                  '${ride['pickup']} → ${ride['destination']}',
+                  isShared
+                      ? '${groupRides.length} rider chats — one private inbox per ride'
+                      : '${lead['pickup']} → ${lead['destination']}',
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
                 const SizedBox(height: AppSpacing.base),
+                _CancellationCountdown(ride: lead),
                 Text('Status: ${status.replaceAll('_', ' ')}'),
                 if (vehicle != null)
                   Text(
                     '${vehicle.color} ${vehicle.make} ${vehicle.model} · ${vehicle.plateNumber}',
                   ),
+                if (isShared) ...[
+                  const SizedBox(height: AppSpacing.base),
+                  _GroupTripStepper(
+                    groupId: groupId,
+                    firstRide: lead,
+                    actionBusy: isBusy,
+                    onAdvance: () => _advanceStop(groupId),
+                  ),
+                ],
                 const SizedBox(height: AppSpacing.sm),
                 Wrap(
                   spacing: AppSpacing.sm,
                   runSpacing: AppSpacing.base,
                   children: [
-                    OutlinedButton.icon(
-                      onPressed: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => ChatWithDriverScreen(
-                            rideId: ride['id'].toString(),
-                            title: 'Message passenger',
-                            isDriverView: true,
-                            quickReplies: const [
-                              'I’m on my way.',
-                              'I have arrived at the pickup point.',
-                              'Please meet me at the pickup point.',
-                            ],
+                    ...groupRides.asMap().entries.map(
+                      (e) {
+                        final index = e.key;
+                        final r = e.value;
+                        return OutlinedButton.icon(
+                          onPressed: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => ChatWithDriverScreen(
+                                rideId: r['id'].toString(),
+                                title: isShared
+                                    ? 'Rider chat ${index + 1} (separate)'
+                                    : 'Message passenger',
+                                isDriverView: true,
+                                quickReplies: const [
+                                  'I’m on my way.',
+                                  'I have arrived at the pickup point.',
+                                  'Please meet me at the pickup point.',
+                                  'Traffic delay — I may be about 5 minutes late.',
+                                  'Please confirm the pickup landmark shown in your app.',
+                                ],
+                              ),
+                            ),
                           ),
-                        ),
-                      ),
-                      icon: const Icon(Icons.chat_bubble_outline),
-                      label: const Text('Contact rider'),
+                          icon: const Icon(Icons.chat_bubble_outline),
+                          label: Text(
+                            isShared ? 'Rider ${index + 1}' : 'Contact rider',
+                          ),
+                        );
+                      },
                     ),
-                    if (status == 'driver_assigned')
+                    FilledButton.icon(
+                      onPressed: isBusy
+                          ? null
+                          : () => Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: isShared
+                                      ? (_) => DriverPickupNavigationScreen.group(
+                                            groupId: groupId!,
+                                            firstRideId: lead['id'].toString(),
+                                          )
+                                      : (_) => DriverPickupNavigationScreen.solo(
+                                            rideId: lead['id'].toString(),
+                                          ),
+                                ),
+                              ),
+                      icon: const Icon(Icons.navigation_outlined),
+                      label: const Text('Navigate'),
+                    ),
+                    if (!isShared && status == 'driver_assigned')
                       FilledButton(
                         onPressed: isBusy
                             ? null
-                            : () => _transition(ride, 'en_route'),
+                            : () => _transition(lead, 'en_route'),
                         child: const Text('Start ride'),
                       ),
-                    if (status == 'en_route')
+                    if (!isShared && status == 'en_route')
                       FilledButton(
                         onPressed: isBusy
                             ? null
-                            : () => _transition(ride, 'completed'),
+                            : () => _transition(lead, 'completed'),
                         child: const Text('Complete ride'),
+                      ),
+                    if (isShared && status == 'en_route')
+                      FilledButton.icon(
+                        onPressed: isBusy
+                            ? null
+                            : () => _transition(lead, 'completed'),
+                        icon: const Icon(Icons.flag_outlined),
+                        label: const Text('Complete all drop offs'),
                       ),
                     TextButton(
                       onPressed: isBusy
                           ? null
-                          : () => _transition(ride, 'cancelled'),
+                          : () => _transition(lead, 'cancelled'),
                       child: const Text('Cancel with reason'),
                     ),
                   ],
@@ -512,6 +604,276 @@ class _CancellationReasonDialogState extends State<_CancellationReasonDialog> {
           child: const Text('Cancel ride'),
         ),
       ],
+    );
+  }
+}
+
+class _CancellationCountdown extends StatefulWidget {
+  const _CancellationCountdown({required this.ride});
+  final Map<String, dynamic> ride;
+
+  @override
+  State<_CancellationCountdown> createState() =>
+      _CancellationCountdownState();
+}
+
+class _CancellationCountdownState extends State<_CancellationCountdown> {
+  Timer? _timer;
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final acceptedStr = widget.ride['accepted_at']?.toString();
+    final freeUntilStr = widget.ride['free_cancel_until']?.toString();
+    final theme = Theme.of(context);
+    if (acceptedStr == null || freeUntilStr == null) {
+      return const SizedBox.shrink();
+    }
+    final acceptedAt = DateTime.tryParse(acceptedStr);
+    final freeUntil = DateTime.tryParse(freeUntilStr);
+    if (acceptedAt == null || freeUntil == null) {
+      return const SizedBox.shrink();
+    }
+    final now = DateTime.now();
+    if (now.isAfter(freeUntil)) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+        child: Row(
+          children: [
+            Icon(
+              Icons.info_outline,
+              size: 18,
+              color: theme.colorScheme.error,
+            ),
+            const SizedBox(width: AppSpacing.xs),
+            Expanded(
+              child: Text(
+                'Free cancel window passed — rider cancellation now incurs a fee.',
+                style: theme.textTheme.bodySmall
+                    ?.copyWith(color: theme.colorScheme.error),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    final remaining = freeUntil.difference(now);
+    final mm = remaining.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final ss = remaining.inSeconds.remainder(60).toString().padLeft(2, '0');
+    final percent = 1 - remaining.inSeconds / 180;
+    final isUrgent = remaining.inSeconds < 60;
+    return Container(
+      margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.gutter,
+        vertical: AppSpacing.sm,
+      ),
+      decoration: BoxDecoration(
+        color: isUrgent
+            ? theme.colorScheme.errorContainer
+            : theme.colorScheme.primaryContainer.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.schedule,
+                size: 18,
+                color: isUrgent
+                    ? theme.colorScheme.onErrorContainer
+                    : theme.colorScheme.primary,
+              ),
+              const SizedBox(width: AppSpacing.xs),
+              Text(
+                'Free cancel: $mm:$ss left',
+                style: theme.textTheme.labelMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                  color: isUrgent
+                      ? theme.colorScheme.onErrorContainer
+                      : theme.colorScheme.primary,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                'Grace period: 3 min',
+                style: theme.textTheme.bodySmall,
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: LinearProgressIndicator(
+              value: percent.clamp(0, 1),
+              backgroundColor:
+                  theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _GroupTripStepper extends StatelessWidget {
+  const _GroupTripStepper({
+    required this.groupId,
+    required this.firstRide,
+    required this.actionBusy,
+    required this.onAdvance,
+  });
+
+  final String? groupId;
+  final Map<String, dynamic> firstRide;
+  final bool actionBusy;
+  final VoidCallback onAdvance;
+
+  Future<({List<int> stops, int? current})> _load() async {
+    final gid = groupId;
+    if (gid == null) return (stops: const <int>[], current: null as int?);
+    final row = await supabase
+        .from('ride_groups')
+        .select('optimised_stop_order, current_stop_idx')
+        .eq('id', gid)
+        .maybeSingle();
+    final stops = (row?['optimised_stop_order'] as List?)
+            ?.map((e) => (e as num).toInt())
+            .toList() ??
+        const <int>[];
+    final current = row?['current_stop_idx'] is num
+        ? (row!['current_stop_idx'] as num).toInt()
+        : null;
+    return (stops: stops, current: current);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return FutureBuilder(
+      future: _load(),
+      builder: (context, snapshot) {
+        final data = snapshot.data;
+        final stops = data?.stops ?? const <int>[];
+        final current = data?.current;
+        if (stops.isEmpty) {
+          return const Text('Stop order loading…');
+        }
+        final displayStops = [
+          for (int i = 0; i < stops.length; i++)
+            (
+              display: '${stops[i] < 2 ? 'P' : 'D'}${(stops[i] % 2) + 1}',
+              kind: stops[i] < 2 ? 'Pickup' : 'Drop off',
+              slot: (stops[i] % 2) + 1,
+              index: i,
+            ),
+        ];
+        return Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(AppSpacing.gutter),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.tertiaryContainer.withValues(alpha: 0.4),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: theme.colorScheme.outlineVariant),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Tap "Advance to next stop" after each pickup/drop off.',
+                style: theme.textTheme.bodySmall
+                    ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  for (int i = 0; i < displayStops.length; i++) ...[
+                    Expanded(
+                      child: Column(
+                        children: [
+                          CircleAvatar(
+                            radius: 18,
+                            backgroundColor:
+                                (current != null && i <= current)
+                                    ? theme.colorScheme.primary
+                                    : theme.colorScheme.surfaceContainerHighest,
+                            child: Text(
+                              (i + 1).toString(),
+                              style: TextStyle(
+                                fontWeight: FontWeight.w700,
+                                color: (current != null && i <= current)
+                                    ? theme.colorScheme.onPrimary
+                                    : theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: AppSpacing.xs),
+                          Text(
+                            displayStops[i].display,
+                            style: theme.textTheme.labelMedium?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          Text(
+                            '${displayStops[i].kind} ${displayStops[i].slot}',
+                            style: theme.textTheme.bodySmall,
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (i < displayStops.length - 1)
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.only(top: 17),
+                          child: Divider(
+                            thickness: 2,
+                            color: (current != null && i < current)
+                                ? theme.colorScheme.primary
+                                : theme.colorScheme.surfaceContainerHighest,
+                          ),
+                        ),
+                      ),
+                  ],
+                ],
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: actionBusy || (current != null && current >= 3)
+                      ? null
+                      : onAdvance,
+                  icon: const Icon(Icons.double_arrow_outlined),
+                  label: Text(
+                    actionBusy
+                        ? 'Updating…'
+                        : (current == null
+                            ? 'Advance to stop 1 (first pickup)'
+                            : 'Advance to stop ${current + 2}'),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

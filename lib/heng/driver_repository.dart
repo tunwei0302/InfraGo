@@ -121,6 +121,14 @@ class DriverRepository {
     return Map<String, dynamic>.from(result as Map);
   }
 
+  Future<Map<String, dynamic>> advanceGroupStop(String groupId) async {
+    final result = await _client.rpc(
+      'advance_group_stop_pointer',
+      params: {'p_group_id': groupId},
+    );
+    return Map<String, dynamic>.from(result as Map);
+  }
+
   Future<void> setOffline() async {
     await _client.rpc('set_my_driver_offline');
   }
