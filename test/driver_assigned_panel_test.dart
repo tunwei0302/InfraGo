@@ -72,4 +72,28 @@ void main() {
     expect(find.text('Driver is at pickup'), findsOneWidget);
     expect(find.text('En route to destination'), findsNothing);
   });
+
+  testWidgets('shared search explains that a rider match is being found', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: DriverAssignedPanel(
+            driver: driver,
+            phase: TripPlannerPhase.searchingDriver,
+            cancelCountdownSeconds: 0,
+            canCancelForFree: true,
+            isSharedRide: true,
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Finding a shared ride match…'), findsOneWidget);
+    expect(
+      find.text('Looking for a compatible rider · cancel free'),
+      findsOneWidget,
+    );
+  });
 }

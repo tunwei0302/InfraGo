@@ -11,6 +11,7 @@ class DriverAssignedPanel extends StatelessWidget {
     required this.cancelCountdownSeconds,
     required this.canCancelForFree,
     this.sharedMatchFound = false,
+    this.isSharedRide = false,
     this.destinationName,
     this.onContactDriver,
     this.onCancelRide,
@@ -22,6 +23,7 @@ class DriverAssignedPanel extends StatelessWidget {
   final int cancelCountdownSeconds;
   final bool canCancelForFree;
   final bool sharedMatchFound;
+  final bool isSharedRide;
   final String? destinationName;
   final VoidCallback? onContactDriver;
   final VoidCallback? onCancelRide;
@@ -37,6 +39,7 @@ class DriverAssignedPanel extends StatelessWidget {
       return _SearchingCard(
         canCancelForFree: canCancelForFree,
         sharedMatchFound: sharedMatchFound,
+        isSharedRide: isSharedRide,
         onCancel: onCancelRide,
       );
     }
@@ -65,11 +68,13 @@ class _SearchingCard extends StatelessWidget {
   const _SearchingCard({
     required this.canCancelForFree,
     required this.sharedMatchFound,
+    required this.isSharedRide,
     this.onCancel,
   });
 
   final bool canCancelForFree;
   final bool sharedMatchFound;
+  final bool isSharedRide;
   final VoidCallback? onCancel;
 
   @override
@@ -108,6 +113,8 @@ class _SearchingCard extends StatelessWidget {
                     child: Text(
                       sharedMatchFound
                           ? 'Matched — waiting for a driver…'
+                          : isSharedRide
+                          ? 'Finding a shared ride match…'
                           : 'Finding drivers near you…',
                       style: Theme.of(context).textTheme.titleMedium,
                     ),
@@ -129,6 +136,8 @@ class _SearchingCard extends StatelessWidget {
                       canCancelForFree
                           ? sharedMatchFound
                                 ? 'Rider match confirmed · cancel free while waiting'
+                                : isSharedRide
+                                ? 'Looking for a compatible rider · cancel free'
                                 : 'Cancel free while searching'
                           : 'Cancellation fees may apply',
                       style: Theme.of(context).textTheme.bodySmall,

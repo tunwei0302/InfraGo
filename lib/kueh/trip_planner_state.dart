@@ -251,6 +251,19 @@ class TripPlannerState extends ChangeNotifier {
     notifyListeners();
   }
 
+  void markContinuedSolo() {
+    final vehicle = _selectedVehicle;
+    if (vehicle == null || !vehicle.isShared) return;
+    _selectedVehicle = VehicleOption(
+      id: 'economy_4',
+      name: 'Economy',
+      seats: 4,
+      currency: vehicle.currency,
+    );
+    _activeRideGroupId = null;
+    notifyListeners();
+  }
+
   void proceedToPickupConfirmation() {
     if (_selectedVehicle == null) return;
     _phase = TripPlannerPhase.pickupConfirmation;

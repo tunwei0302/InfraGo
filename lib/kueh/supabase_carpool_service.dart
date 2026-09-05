@@ -31,17 +31,13 @@ class SupabaseCarpoolService {
 
   Future<List<CarpoolMatch>> findMatches(RideRequest request) async {
     try {
-      final rows = await client
-          .from('rides')
-          .select(
-            'id,rider_id,status,service_type,passenger_count,departure_time,'
-            'pickup_latitude,pickup_longitude,destination_latitude,'
-            'destination_longitude,transit_stop_id',
-          )
-          .eq('service_type', 'shared_economy')
-          .inFilter('status', ['waiting_match', 'requested'])
-          .neq('id', request.id)
-          .limit(20);
+      final result = await client.rpc(
+        'list_shared_ride_candidates',
+        params: {'p_ride_id': request.id},
+      );
+      final rows = (result as List<dynamic>)
+          .map((row) => Map<String, dynamic>.from(row as Map))
+          .toList(growable: false);
       final candidates = <RideRequest>[];
       for (final row in rows) {
         final parsed = _parseRequest(row);

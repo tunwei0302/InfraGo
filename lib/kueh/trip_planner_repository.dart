@@ -66,17 +66,20 @@ class RideLifecycleSnapshot {
     required this.id,
     required this.status,
     this.driverId,
+    this.groupId,
   });
 
   final String id;
   final String status;
   final String? driverId;
+  final String? groupId;
 
   factory RideLifecycleSnapshot.fromJson(Map<String, dynamic> json) =>
       RideLifecycleSnapshot(
         id: json['id'] as String,
         status: json['status'] as String? ?? 'requested',
         driverId: json['driver_id'] as String?,
+        groupId: json['group_id'] as String?,
       );
 }
 

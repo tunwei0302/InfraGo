@@ -481,6 +481,10 @@ class _MessageBubble extends StatelessWidget {
                   ).textTheme.labelSmall?.copyWith(color: mutedColor),
                 ),
                 const SizedBox(height: AppSpacing.xs),
+                if (message.imagePath != null) ...[
+                  _PrivateChatImage(path: message.imagePath!),
+                  const SizedBox(height: AppSpacing.xs),
+                ],
                 Text(message.body, style: TextStyle(color: bodyColor)),
                 if (time != null) ...[
                   const SizedBox(height: AppSpacing.xs),
@@ -496,6 +500,59 @@ class _MessageBubble extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _PrivateChatImage extends StatefulWidget {
+  const _PrivateChatImage({required this.path});
+
+  final String path;
+
+  @override
+  State<_PrivateChatImage> createState() => _PrivateChatImageState();
+}
+
+class _PrivateChatImageState extends State<_PrivateChatImage> {
+  late final Future<String> _signedUrl = supabase.storage
+      .from('pickup-landmarks')
+      .createSignedUrl(widget.path, 3600);
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<String>(
+      future: _signedUrl,
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return const SizedBox(
+            width: 220,
+            height: 96,
+            child: Center(child: Text('Photo unavailable')),
+          );
+        }
+        final url = snapshot.data;
+        if (url == null) {
+          return const SizedBox(
+            width: 220,
+            height: 96,
+            child: Center(child: CircularProgressIndicator()),
+          );
+        }
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(AppRadius.standard),
+          child: Image.network(
+            url,
+            width: 220,
+            height: 150,
+            fit: BoxFit.cover,
+            errorBuilder: (_, _, _) => const SizedBox(
+              width: 220,
+              height: 96,
+              child: Center(child: Text('Photo unavailable')),
+            ),
+          ),
+        );
+      },
     );
   }
 }

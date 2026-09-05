@@ -34,6 +34,8 @@ import 'package:infra_go/kueh/vehicle_presence_service.dart';
 import 'package:infra_go/weather/route_weather_service.dart';
 
 const LatLng kKualaLumpurCenter = LatLng(3.1390, 101.6869);
+const Duration kSharedMatchWindow = Duration(seconds: 60);
+const Duration kSharedMatchRetryInterval = Duration(seconds: 5);
 
 String formatCoordinate(LatLng point) =>
     '${point.latitude.toStringAsFixed(5)}, ${point.longitude.toStringAsFixed(5)}';
@@ -91,8 +93,14 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
   StreamSubscription<RideLifecycleSnapshot>? _assignedSubscription;
   StreamSubscription<ExactDriver?>? _exactDriverSubscription;
   Timer? _driverEtaRefreshTimer;
+  Timer? _sharedMatchRetryTimer;
+  DateTime? _sharedMatchDeadline;
   ExactDriver? _latestExactDriver;
   bool _driverEtaRefreshInFlight = false;
+  bool _sharedMatchAttemptInFlight = false;
+  bool _sharedNoMatchPromptOpen = false;
+  bool _sharedMatchErrorShown = false;
+  final Set<String> _dismissedSharedCandidateIds = <String>{};
 
   LatLng? _currentLocation;
   String? _locationMessage;
@@ -239,7 +247,7 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
       }
       _state.setActiveRideId(result.rideId);
       _watchRide(result.rideId);
-      if (vehicle.isShared) unawaited(_trySharedMatch(result.rideId));
+      if (vehicle.isShared) _startSharedMatching(result.rideId);
     } on RideBookingException catch (error) {
       throw TripPlannerRepositoryException('Booking failed: $error');
     } finally {
@@ -337,6 +345,7 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
     _assignedSubscription?.cancel();
     _exactDriverSubscription?.cancel();
     _driverEtaRefreshTimer?.cancel();
+    _stopSharedMatching();
     _latestExactDriver = null;
   }
 
@@ -349,7 +358,15 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
             if (!mounted) return;
             switch (snapshot.status) {
               case 'matched':
+                _stopSharedMatching();
+                final groupId = snapshot.groupId;
+                if (groupId != null) _state.markSharedMatched(groupId);
+                final driverId = snapshot.driverId;
+                if (driverId != null) {
+                  await _showAssignedDriver(rideId, driverId);
+                }
               case 'driver_assigned':
+                _stopSharedMatching();
                 final driverId = snapshot.driverId;
                 if (driverId != null) {
                   await _showAssignedDriver(rideId, driverId);
@@ -481,11 +498,47 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
     }
   }
 
-  Future<void> _trySharedMatch(String rideId) async {
+  void _startSharedMatching(
+    String rideId, {
+    bool clearDismissedCandidates = true,
+  }) {
+    _sharedMatchRetryTimer?.cancel();
+    _sharedMatchDeadline = DateTime.now().add(kSharedMatchWindow);
+    _sharedMatchErrorShown = false;
+    if (clearDismissedCandidates) _dismissedSharedCandidateIds.clear();
+    unawaited(_runSharedMatchAttempt(rideId));
+    _sharedMatchRetryTimer = Timer.periodic(kSharedMatchRetryInterval, (_) {
+      unawaited(_runSharedMatchAttempt(rideId));
+    });
+  }
+
+  void _stopSharedMatching() {
+    _sharedMatchRetryTimer?.cancel();
+    _sharedMatchRetryTimer = null;
+    _sharedMatchDeadline = null;
+    _sharedMatchAttemptInFlight = false;
+  }
+
+  Future<void> _runSharedMatchAttempt(String rideId) async {
+    if (_sharedMatchAttemptInFlight ||
+        !mounted ||
+        _state.activeRideId != rideId ||
+        _state.activeRideGroupId != null) {
+      return;
+    }
+    final deadline = _sharedMatchDeadline;
+    if (deadline != null && !DateTime.now().isBefore(deadline)) {
+      _sharedMatchRetryTimer?.cancel();
+      _sharedMatchRetryTimer = null;
+      await _offerSharedNoMatchChoice(rideId);
+      return;
+    }
+
     final pickup = _state.pickup;
     final destination = _state.destination;
     final userId = supabase.auth.currentUser?.id;
     if (pickup == null || destination == null || userId == null) return;
+    _sharedMatchAttemptInFlight = true;
     final request = RideRequest(
       id: rideId,
       riderId: userId,
@@ -498,11 +551,16 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
     try {
       final matches = await _carpoolService.findMatches(request);
       if (!mounted || _state.activeRideId != rideId) return;
-      if (matches.isEmpty) {
-        await _offerSharedNoMatchChoice(rideId);
-        return;
-      }
-      final match = matches.first;
+      final availableMatches = matches.where(
+        (match) => !_dismissedSharedCandidateIds.contains(
+          match.requests.firstWhere((item) => item.id != rideId).id,
+        ),
+      );
+      if (availableMatches.isEmpty) return;
+      final match = availableMatches.first;
+      final candidateId = match.requests
+          .firstWhere((item) => item.id != rideId)
+          .id;
       final accepted = await showModalBottomSheet<bool>(
         context: context,
         isScrollControlled: true,
@@ -515,9 +573,13 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
           onDismiss: () => Navigator.pop(sheetContext, false),
         ),
       );
-      if (accepted != true || !mounted) return;
+      if (accepted != true || !mounted) {
+        _dismissedSharedCandidateIds.add(candidateId);
+        return;
+      }
       final groupId = await _carpoolService.commitMatch(match);
       if (!mounted) return;
+      _stopSharedMatching();
       _state.markSharedMatched(groupId);
       setState(() => _currentMatch = match);
       _focusSelectedPlaces(pickup.point);
@@ -528,50 +590,66 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
       );
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Shared matching is still searching: $error')),
-      );
+      if (!_sharedMatchErrorShown) {
+        _sharedMatchErrorShown = true;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Shared matching is still searching: $error')),
+        );
+      }
+    } finally {
+      _sharedMatchAttemptInFlight = false;
     }
   }
 
   Future<void> _offerSharedNoMatchChoice(String rideId) async {
-    if (!mounted) return;
-    final choice = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('No shared match yet'),
-        content: const Text(
-          'No other rider matched this trip yet. Continue alone at the '
-          'solo Economy fare, or cancel for free while still searching.',
+    if (!mounted || _sharedNoMatchPromptOpen) return;
+    _sharedNoMatchPromptOpen = true;
+    try {
+      final choice = await showDialog<String>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('No shared match yet'),
+          content: const Text(
+            'No other rider matched this trip yet. Continue alone at the '
+            'solo Economy fare, or cancel for free while still searching.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, 'wait'),
+              child: const Text('Keep waiting'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, 'cancel'),
+              child: const Text('Cancel ride'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, 'solo'),
+              child: const Text('Continue solo'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, 'wait'),
-            child: const Text('Keep waiting'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, 'cancel'),
-            child: const Text('Cancel ride'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, 'solo'),
-            child: const Text('Continue solo'),
-          ),
-        ],
-      ),
-    );
-    if (!mounted || choice == null || choice == 'wait') return;
-    if (choice == 'cancel') {
-      await _cancelActiveRide();
-      return;
+      );
+      if (!mounted) return;
+      if (choice == null || choice == 'wait') {
+        _startSharedMatching(rideId);
+        return;
+      }
+      if (choice == 'cancel') {
+        await _cancelActiveRide();
+        return;
+      }
+      await _continueSharedRideSolo(rideId);
+    } finally {
+      _sharedNoMatchPromptOpen = false;
     }
-    await _continueSharedRideSolo(rideId);
   }
 
   Future<void> _continueSharedRideSolo(String rideId) async {
     try {
       final result = await _paymentRepository.convertSharedRideToSolo(rideId);
       if (!mounted) return;
+      _stopSharedMatching();
+      _state.markContinuedSolo();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
@@ -729,6 +807,7 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
     _assignedSubscription?.cancel();
     _exactDriverSubscription?.cancel();
     _driverEtaRefreshTimer?.cancel();
+    _sharedMatchRetryTimer?.cancel();
     _state.removeListener(_onStateChanged);
     _state.dispose();
     _locationSearch.close();
@@ -1165,6 +1244,7 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
 
   void _resetPlanner() {
     _driverEtaRefreshTimer?.cancel();
+    _stopSharedMatching();
     _latestExactDriver = null;
     _clearTransitSelection();
     _state.resetToExplore(keepPickup: _state.pickup);
@@ -1519,6 +1599,7 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
                 cancelCountdownSeconds: _state.cancelCountdownSeconds,
                 canCancelForFree: _state.canCancelForFree,
                 sharedMatchFound: _state.isSharedMatchedWaitingDriver,
+                isSharedRide: _state.selectedVehicle?.isShared == true,
                 destinationName: _state.destination?.name,
                 onContactDriver: _state.assignedDriver != null
                     ? () {
