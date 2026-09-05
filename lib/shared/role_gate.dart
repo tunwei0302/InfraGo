@@ -5,6 +5,7 @@ import 'package:infra_go/shared/app_state.dart';
 import 'package:infra_go/shared/commuter_home_screen.dart';
 import 'package:infra_go/heng/driver_home_screen.dart';
 import 'package:infra_go/shared/login_screen.dart';
+import 'package:infra_go/tey/admin_home_screen.dart';
 
 class RoleGate extends StatelessWidget {
   const RoleGate({super.key});
@@ -44,6 +45,9 @@ class RoleGate extends StatelessWidget {
         }
         if (appState.role == 'driver') {
           return const DriverHomeScreen();
+        }
+        if (appState.role == 'admin') {
+          return const AdminHomeScreen();
         }
         return const CommuterHomeScreen();
       },
