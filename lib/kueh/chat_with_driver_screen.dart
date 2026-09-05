@@ -42,6 +42,7 @@ class _ChatWithDriverScreenState extends State<ChatWithDriverScreen> {
   bool _isSending = false;
   Stream<List<Map<String, dynamic>>>? _messagesStream;
   String? _messagesStreamRideId;
+  int? _lastRenderedMessageId;
 
   @override
   void initState() {
@@ -259,7 +260,7 @@ class _ChatWithDriverScreenState extends State<ChatWithDriverScreen> {
           .from('messages')
           .stream(primaryKey: ['id'])
           .eq('ride_id', rideId)
-          .order('created_at');
+          .order('created_at', ascending: true);
     }
     return _messagesStream!;
   }
@@ -282,9 +283,9 @@ class _ChatWithDriverScreenState extends State<ChatWithDriverScreen> {
           return const Center(child: CircularProgressIndicator());
         }
 
-        final messages = (snapshot.data ?? [])
-            .map(ChatMessage.fromJson)
-            .toList();
+        final messages = sortChatMessagesOldestFirst(
+          (snapshot.data ?? []).map(ChatMessage.fromJson),
+        );
         if (messages.isEmpty) {
           return _ChatUnavailable(
             icon: Icons.waving_hand_outlined,
@@ -294,9 +295,14 @@ class _ChatWithDriverScreenState extends State<ChatWithDriverScreen> {
           );
         }
 
-        _scrollToLatest();
+        final newestId = messages.last.id;
+        if (_lastRenderedMessageId != newestId) {
+          _lastRenderedMessageId = newestId;
+          _scrollToLatest();
+        }
         return ListView.separated(
           controller: _scrollController,
+          reverse: false,
           padding: const EdgeInsets.all(AppSpacing.marginMobile),
           itemCount: messages.length,
           separatorBuilder: (context, index) =>

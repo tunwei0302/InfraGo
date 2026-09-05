@@ -582,8 +582,22 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
       );
     } catch (error) {
       if (!mounted) return;
+      final databaseFunctionMissing =
+          error.toString().contains('PGRST202') ||
+          error.toString().contains('continue_shared_ride_solo');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not switch to solo: $error')),
+        SnackBar(
+          content: Text(
+            databaseFunctionMissing
+                ? 'Solo conversion is not installed on the server yet. '
+                      'Your shared request is unchanged and still waiting.'
+                : 'Could not switch to solo. Your shared request was not changed.',
+          ),
+          action: SnackBarAction(
+            label: 'Retry',
+            onPressed: () => unawaited(_continueSharedRideSolo(rideId)),
+          ),
+        ),
       );
     }
   }
@@ -1423,9 +1437,26 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
                   key: const Key('map_control_transit'),
                   icon: Icons.directions_transit,
                   onPressed: _loadTransitStops,
-                  tooltip: 'Transit stops',
+                  tooltip: 'Nearby public transport stops (GTFS)',
                   selected: _selectedTransitStop != null,
                   loading: _transitStatus == _TransitStatus.loading,
+                ),
+                const SizedBox(height: 2),
+                DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.surface,
+                    borderRadius: BorderRadius.circular(AppRadius.sm),
+                    boxShadow: const [
+                      BoxShadow(color: Colors.black12, blurRadius: 4),
+                    ],
+                  ),
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(
+                      horizontal: AppSpacing.xs,
+                      vertical: 2,
+                    ),
+                    child: Text('Transit', style: TextStyle(fontSize: 10)),
+                  ),
                 ),
                 const SizedBox(height: AppSpacing.sm),
                 _MapControlButton(

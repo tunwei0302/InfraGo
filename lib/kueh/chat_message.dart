@@ -21,3 +21,21 @@ class ChatMessage {
     createdAt: DateTime.tryParse(json['created_at'] as String? ?? ''),
   );
 }
+
+List<ChatMessage> sortChatMessagesOldestFirst(Iterable<ChatMessage> messages) {
+  final sorted = messages.toList(growable: false);
+  sorted.sort((a, b) {
+    final aTime = a.createdAt;
+    final bTime = b.createdAt;
+    if (aTime != null && bTime != null) {
+      final byTime = aTime.compareTo(bTime);
+      if (byTime != 0) return byTime;
+    } else if (aTime == null && bTime != null) {
+      return -1;
+    } else if (aTime != null && bTime == null) {
+      return 1;
+    }
+    return a.id.compareTo(b.id);
+  });
+  return sorted;
+}
