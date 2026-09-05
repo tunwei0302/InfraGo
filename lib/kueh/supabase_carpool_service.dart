@@ -106,21 +106,33 @@ class SupabaseCarpoolService {
           );
 
     try {
-      final result = await client.rpc(
-        'create_carpool_match',
-        params: {
-          'p_ride_a': rideA.id,
-          'p_ride_b': rideB.id,
-          'p_match_score': match.score,
-          'p_match_reasons': match.reasons,
-          'p_stop_order': stopOrder,
-          'p_detour_a': detourA,
-          'p_detour_b': detourB,
-          'p_route_distance_meters': match.bestRoute.totalDistanceMeters,
-          'p_route_duration_seconds': match.bestRoute.totalDurationSeconds,
-          'p_vehicle_km_avoided': match.vehicleKmAvoidedMeters,
-        },
-      );
+      final baseParams = <String, dynamic>{
+        'p_ride_a': rideA.id,
+        'p_ride_b': rideB.id,
+        'p_match_score': match.score,
+        'p_match_reasons': match.reasons,
+        'p_stop_order': stopOrder,
+        'p_detour_a': detourA,
+        'p_detour_b': detourB,
+        'p_route_distance_meters': match.bestRoute.totalDistanceMeters,
+        'p_route_duration_seconds': match.bestRoute.totalDurationSeconds,
+      };
+      dynamic result;
+      try {
+        result = await client.rpc(
+          'create_carpool_match',
+          params: {
+            ...baseParams,
+            'p_vehicle_km_avoided': match.vehicleKmAvoidedMeters,
+          },
+        );
+      } catch (error) {
+        // Older team databases exposed the original nine-argument function.
+        // Keep matching usable during a rolling migration; the new wrapper
+        // persists vehicle-km avoided once the migration is installed.
+        if (!error.toString().contains('PGRST202')) rethrow;
+        result = await client.rpc('create_carpool_match', params: baseParams);
+      }
       final payload = Map<String, dynamic>.from(result as Map);
       if (payload['success'] != true) {
         throw CarpoolServiceException(

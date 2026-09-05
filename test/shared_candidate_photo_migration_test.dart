@@ -12,6 +12,9 @@ void main() {
   final planner = File(
     'lib/kueh/trip_planner_map_screen.dart',
   ).readAsStringSync();
+  final restoreMatchSql = File(
+    'supabase/migrations/20260906002000_k_restore_carpool_match_rpc.sql',
+  ).readAsStringSync();
 
   test('shared candidates use an authenticated RLS-safe RPC', () {
     expect(sql, contains('FUNCTION list_shared_ride_candidates'));
@@ -40,5 +43,13 @@ void main() {
     expect(sql, contains('NEW.pickup_landmark_path'));
     expect(sql, contains('idx_messages_one_pickup_photo_per_ride'));
     expect(sql, contains("LIKE NEW.rider_id::text || '/' || NEW.id::text"));
+  });
+
+  test('current carpool RPC keeps legacy compatibility and SDG distance', () {
+    expect(restoreMatchSql, contains('p_vehicle_km_avoided DOUBLE PRECISION'));
+    expect(restoreMatchSql, contains('v_result := create_carpool_match('));
+    expect(restoreMatchSql, contains('SET vehicle_km_avoided = greatest'));
+    expect(restoreMatchSql, contains("NOTIFY pgrst, 'reload schema'"));
+    expect(service, contains("if (!error.toString().contains('PGRST202'))"));
   });
 }

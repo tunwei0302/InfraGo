@@ -51,6 +51,18 @@ double straightLineDistanceMeters(LatLng origin, LatLng destination) =>
 bool hasDriverReachedPickup(LatLng driver, LatLng pickup) =>
     haversineMeters(driver, pickup) <= 100;
 
+String sharedMatchFailureMessage(Object error) {
+  final raw = error.toString();
+  if (raw.contains('PGRST202')) {
+    return 'Shared Ride is being updated. Please retry in a moment.';
+  }
+  if (raw.contains('concurrent_match_lost') ||
+      raw.contains('ride_not_available')) {
+    return 'That rider was just matched. We will find another match.';
+  }
+  return 'Shared matching is temporarily unavailable. We will keep trying.';
+}
+
 LatLng? assignedDriverEtaTarget({
   required TripPlannerPhase phase,
   required LatLng? pickup,
@@ -593,7 +605,7 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
       if (!_sharedMatchErrorShown) {
         _sharedMatchErrorShown = true;
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Shared matching is still searching: $error')),
+          SnackBar(content: Text(sharedMatchFailureMessage(error))),
         );
       }
     } finally {

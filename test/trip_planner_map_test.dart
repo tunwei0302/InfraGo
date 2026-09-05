@@ -5,6 +5,17 @@ import 'package:infra_go/kueh/trip_planner_map_screen.dart';
 import 'package:infra_go/kueh/trip_planner_state.dart';
 
 void main() {
+  test('database errors are converted to rider-friendly shared messages', () {
+    expect(
+      sharedMatchFailureMessage(Exception('PGRST202 function missing')),
+      'Shared Ride is being updated. Please retry in a moment.',
+    );
+    expect(
+      sharedMatchFailureMessage(Exception('network timeout')),
+      'Shared matching is temporarily unavailable. We will keep trying.',
+    );
+  });
+
   test('formats map coordinates consistently', () {
     expect(
       formatCoordinate(const LatLng(3.139, 101.6869)),
