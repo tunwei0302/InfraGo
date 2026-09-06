@@ -28,9 +28,10 @@ String _formatDate(DateTime value) =>
     '${value.hour.toString().padLeft(2, '0')}:${value.minute.toString().padLeft(2, '0')}';
 
 class ReceiptScreen extends StatefulWidget {
-  const ReceiptScreen({super.key, required this.rideId});
+  const ReceiptScreen({super.key, required this.rideId, this.isDriver = false});
 
   final String rideId;
+  final bool isDriver;
 
   @override
   State<ReceiptScreen> createState() => _ReceiptScreenState();
@@ -167,7 +168,8 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
             _row('Reason', receipt.cancellationReason!),
           const SizedBox(height: AppSpacing.md),
         ],
-        if (receipt.status == 'completed' &&
+        if (!widget.isDriver &&
+            receipt.status == 'completed' &&
             !_isRated &&
             receipt.driverId != null)
           ElevatedButton(

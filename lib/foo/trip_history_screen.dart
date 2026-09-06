@@ -11,7 +11,9 @@ import 'package:infra_go/shared/supabase_config.dart';
 import 'package:infra_go/kueh/trip_planner_map_screen.dart';
 
 class TripHistoryScreen extends StatefulWidget {
-  const TripHistoryScreen({super.key});
+  const TripHistoryScreen({super.key, this.isDriver = false});
+
+  final bool isDriver;
 
   @override
   State<TripHistoryScreen> createState() => _TripHistoryScreenState();
@@ -30,8 +32,8 @@ class _TripHistoryScreenState extends State<TripHistoryScreen> {
   }
 
   Future<void> _load() async {
-    final riderId = supabase.auth.currentUser?.id;
-    if (riderId == null) {
+    final userId = supabase.auth.currentUser?.id;
+    if (userId == null) {
       setState(() {
         _isLoading = false;
         _error = 'Sign in to see your trip history.';
@@ -43,7 +45,9 @@ class _TripHistoryScreenState extends State<TripHistoryScreen> {
       _error = null;
     });
     try {
-      final rides = await _repository.loadHistory(riderId);
+      final rides = widget.isDriver
+          ? await _repository.loadDriverHistory(userId)
+          : await _repository.loadHistory(userId);
       if (!mounted) return;
       setState(() {
         _rides = rides;
@@ -123,13 +127,18 @@ class _TripHistoryScreenState extends State<TripHistoryScreen> {
                     onTap: () => Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (context) => ReceiptScreen(rideId: rideId),
+                        builder: (context) => ReceiptScreen(
+                          rideId: rideId,
+                          isDriver: widget.isDriver,
+                        ),
                       ),
                     ),
-                    trailing: TextButton(
-                      onPressed: () => _bookAgain(ride),
-                      child: const Text('Book again'),
-                    ),
+                    trailing: widget.isDriver
+                        ? null
+                        : TextButton(
+                            onPressed: () => _bookAgain(ride),
+                            child: const Text('Book again'),
+                          ),
                   ),
                 );
               },

@@ -295,15 +295,32 @@ class _StatusPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final (label, color) = switch (status) {
+    final (label, color, onColor) = switch (status) {
       'driver_assigned' => (
         'Driver assigned',
         theme.colorScheme.primaryContainer,
+        theme.colorScheme.onPrimaryContainer,
       ),
-      'en_route' => ('En route', theme.colorScheme.secondaryContainer),
-      'completed' => ('Completed', theme.colorScheme.tertiaryContainer),
-      'cancelled' => ('Cancelled', theme.colorScheme.errorContainer),
-      _ => (status, theme.colorScheme.surfaceContainerHighest),
+      'en_route' => (
+        'En route',
+        theme.colorScheme.secondaryContainer,
+        theme.colorScheme.onSecondaryContainer,
+      ),
+      'completed' => (
+        'Completed',
+        theme.colorScheme.tertiaryContainer,
+        theme.colorScheme.onTertiaryContainer,
+      ),
+      'cancelled' => (
+        'Cancelled',
+        theme.colorScheme.errorContainer,
+        theme.colorScheme.onErrorContainer,
+      ),
+      _ => (
+        status,
+        theme.colorScheme.surfaceContainerHighest,
+        theme.colorScheme.onSurfaceVariant,
+      ),
     };
     return Container(
       padding: const EdgeInsets.symmetric(
@@ -314,7 +331,13 @@ class _StatusPill extends StatelessWidget {
         color: color,
         borderRadius: BorderRadius.circular(999),
       ),
-      child: Text(label, style: theme.textTheme.labelSmall),
+      child: Text(
+        label,
+        style: theme.textTheme.labelSmall?.copyWith(
+          color: onColor,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
     );
   }
 }

@@ -172,6 +172,16 @@ class ReceiptRepository {
     return List<Map<String, dynamic>>.from(rows as List);
   }
 
+  Future<List<Map<String, dynamic>>> loadDriverHistory(String driverId) async {
+    final rows = await client
+        .from('rides')
+        .select()
+        .eq('driver_id', driverId)
+        .inFilter('status', ['completed', 'cancelled'])
+        .order('departure_time', ascending: false);
+    return List<Map<String, dynamic>>.from(rows as List);
+  }
+
   Future<bool> hasRating(String rideId) async {
     try {
       final rows = await client

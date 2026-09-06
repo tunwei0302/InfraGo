@@ -52,25 +52,27 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       final role = (profile?['role'] as String?)?.toLowerCase();
       final isDriver = role == 'driver';
 
-      final results = await Future.wait<Object?>([
-        RewardsRepository(supabase).ensureRewardAccount(),
-        if (isDriver) _loadDriverStatuses(user.id),
-      ], eagerError: false);
+      int? rewardBalance;
+      _DriverStatusResult? driverStatus;
+      if (isDriver) {
+        driverStatus = await _loadDriverStatuses(user.id);
+      } else {
+        try {
+          rewardBalance =
+              await RewardsRepository(supabase).ensureRewardAccount();
+        } catch (_) {
+          // Reward account lookup is best-effort; leave balance unset on failure
+        }
+      }
 
       if (!mounted) return;
       setState(() {
         _profile = profile;
-        final r = results[0];
-        if (r is int) _rewardBalance = r;
-        if (isDriver && results.length > 1) {
-          final dr = results[1];
-          if (dr is _DriverStatusResult) {
-            _driverRating = dr.rating;
-            _identityStatus = dr.identityStatus;
-            _vehicleApproval = dr.vehicleApproval;
-            _vehicleCapacity = dr.vehicleCapacity;
-          }
-        }
+        _rewardBalance = rewardBalance;
+        _driverRating = driverStatus?.rating;
+        _identityStatus = driverStatus?.identityStatus;
+        _vehicleApproval = driverStatus?.vehicleApproval;
+        _vehicleCapacity = driverStatus?.vehicleCapacity;
         _isLoading = false;
       });
     } catch (_) {
@@ -226,31 +228,13 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                       ),
                       const SizedBox(height: AppSpacing.lg),
                       if (isDriver)
-                        Row(
-                          children: [
-                            Expanded(
-                              child: _SmallStatCard(
-                                label: 'Reward points',
-                                value: _rewardBalance == null
-                                    ? '…'
-                                    : '$_rewardBalance',
-                                icon: Icons.card_giftcard_outlined,
-                                highlight: scheme.primaryContainer,
-                                onHighlight: scheme.onPrimaryContainer,
-                              ),
-                            ),
-                            const SizedBox(width: AppSpacing.md),
-                            Expanded(
-                              child: _SmallStatCard(
-                                label: 'Driver rating',
-                                value: _driverRating?.displayAverage ??
-                                    'No ratings yet',
-                                icon: Icons.star_border_outlined,
-                                highlight: scheme.tertiaryContainer,
-                                onHighlight: scheme.onTertiaryContainer,
-                              ),
-                            ),
-                          ],
+                        _SmallStatCard(
+                          label: 'Driver rating',
+                          value: _driverRating?.displayAverage ??
+                              'No ratings yet',
+                          icon: Icons.star_border_outlined,
+                          highlight: scheme.tertiaryContainer,
+                          onHighlight: scheme.onTertiaryContainer,
                         )
                       else
                         _SmallStatCard(
@@ -310,38 +294,52 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                           ),
                       ],
                       const SizedBox(height: AppSpacing.lg),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: ElevatedButton.icon(
-                              onPressed: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                      builder: (_) => const RewardsScreen()),
-                                );
-                              },
-                              icon: const Icon(Icons.card_giftcard),
-                              label: const Text('View Rewards'),
+                      if (isDriver)
+                        ElevatedButton.icon(
+                          onPressed: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                  builder: (_) => const TripHistoryScreen(
+                                      isDriver: true)),
+                            );
+                          },
+                          icon: const Icon(Icons.history),
+                          label: const Text('Trip History'),
+                        )
+                      else
+                        Row(
+                          children: [
+                            Expanded(
+                              child: ElevatedButton.icon(
+                                onPressed: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                        builder: (_) => const RewardsScreen()),
+                                  );
+                                },
+                                icon: const Icon(Icons.card_giftcard),
+                                label: const Text('View Rewards'),
+                              ),
                             ),
-                          ),
-                          const SizedBox(width: AppSpacing.md),
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              onPressed: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                      builder: (_) =>
-                                          const TripHistoryScreen()),
-                              );
-                              },
-                              icon: const Icon(Icons.history),
-                              label: const Text('Trip History'),
+                            const SizedBox(width: AppSpacing.md),
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                onPressed: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                        builder: (_) =>
+                                            const TripHistoryScreen()),
+                                  );
+                                },
+                                icon: const Icon(Icons.history),
+                                label: const Text('Trip History'),
+                              ),
                             ),
-                          ),
-                        ],
-                      ),
+                          ],
+                        ),
                     ],
                   ),
                 ),
