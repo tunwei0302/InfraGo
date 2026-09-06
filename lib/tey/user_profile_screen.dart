@@ -44,29 +44,32 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       return;
     }
     try {
-      final profileF = supabase
+      final profile = await supabase
           .from('profiles')
           .select()
           .eq('id', user.id)
           .maybeSingle();
-      final rewardsF = RewardsRepository(supabase).ensureRewardAccount();
+      final role = (profile?['role'] as String?)?.toLowerCase();
+      final isDriver = role == 'driver';
+
       final results = await Future.wait<Object?>([
-        profileF,
-        rewardsF,
-        _loadDriverStatuses(user.id),
+        RewardsRepository(supabase).ensureRewardAccount(),
+        if (isDriver) _loadDriverStatuses(user.id),
       ], eagerError: false);
+
       if (!mounted) return;
       setState(() {
-        final p = results[0];
-        _profile = p is Map<String, dynamic> ? p : null;
-        final r = results[1];
+        _profile = profile;
+        final r = results[0];
         if (r is int) _rewardBalance = r;
-        final dr = results[2];
-        if (dr is _DriverStatusResult) {
-          _driverRating = dr.rating;
-          _identityStatus = dr.identityStatus;
-          _vehicleApproval = dr.vehicleApproval;
-          _vehicleCapacity = dr.vehicleCapacity;
+        if (isDriver && results.length > 1) {
+          final dr = results[1];
+          if (dr is _DriverStatusResult) {
+            _driverRating = dr.rating;
+            _identityStatus = dr.identityStatus;
+            _vehicleApproval = dr.vehicleApproval;
+            _vehicleCapacity = dr.vehicleCapacity;
+          }
         }
         _isLoading = false;
       });
@@ -80,7 +83,6 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   }
 
   Future<_DriverStatusResult?> _loadDriverStatuses(String userId) async {
-    final role = (_profile?['role'] as String?)?.toLowerCase();
     final ratingRepo = DriverRatingRepository(supabase);
     DriverRatingSummary? rating;
     String? identityStatus;
@@ -112,13 +114,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         vehicleCapacity = (veh['passenger_capacity'] as num?)?.toInt();
       }
     } catch (_) {
-      // Driver-only tables gracefully fall back to null for riders
-    }
-    if (role != 'driver' &&
-        rating == null &&
-        identityStatus == null &&
-        vehicleApproval == null) {
-      return null;
+      // Driver-only tables gracefully fall back to null on lookup failure
     }
     return _DriverStatusResult(
       rating: rating,
@@ -229,30 +225,41 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                         ],
                       ),
                       const SizedBox(height: AppSpacing.lg),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: _SmallStatCard(
-                              label: 'Reward points',
-                              value: _rewardBalance == null ? '…' : '$_rewardBalance',
-                              icon: Icons.card_giftcard_outlined,
-                              highlight: scheme.primaryContainer,
-                              onHighlight: scheme.onPrimaryContainer,
+                      if (isDriver)
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _SmallStatCard(
+                                label: 'Reward points',
+                                value: _rewardBalance == null
+                                    ? '…'
+                                    : '$_rewardBalance',
+                                icon: Icons.card_giftcard_outlined,
+                                highlight: scheme.primaryContainer,
+                                onHighlight: scheme.onPrimaryContainer,
+                              ),
                             ),
-                          ),
-                          const SizedBox(width: AppSpacing.md),
-                          Expanded(
-                            child: _SmallStatCard(
-                              label: 'Driver rating',
-                              value: _driverRating?.displayAverage ??
-                                  'No ratings yet',
-                              icon: Icons.star_border_outlined,
-                              highlight: scheme.tertiaryContainer,
-                              onHighlight: scheme.onTertiaryContainer,
+                            const SizedBox(width: AppSpacing.md),
+                            Expanded(
+                              child: _SmallStatCard(
+                                label: 'Driver rating',
+                                value: _driverRating?.displayAverage ??
+                                    'No ratings yet',
+                                icon: Icons.star_border_outlined,
+                                highlight: scheme.tertiaryContainer,
+                                onHighlight: scheme.onTertiaryContainer,
+                              ),
                             ),
-                          ),
-                        ],
-                      ),
+                          ],
+                        )
+                      else
+                        _SmallStatCard(
+                          label: 'Reward points',
+                          value: _rewardBalance == null ? '…' : '$_rewardBalance',
+                          icon: Icons.card_giftcard_outlined,
+                          highlight: scheme.primaryContainer,
+                          onHighlight: scheme.onPrimaryContainer,
+                        ),
                       if (isDriver) ...[
                         const SizedBox(height: AppSpacing.lg),
                         Text('Driver onboarding', style: AppTextStyles.sectionHeader),

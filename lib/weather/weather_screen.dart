@@ -306,13 +306,6 @@ class _WeatherScreenState extends State<WeatherScreen> {
               onEdit: (location) => _openLocationForm(existing: location),
               onDelete: _confirmDelete,
             ),
-            const SizedBox(height: AppSpacing.lg),
-            Text(
-              'Source: Open-Meteo • Live, third-party data — not a data.gov.my '
-              'dataset. Risk thresholds are a coursework estimate, not an '
-              'official MetMalaysia rainfall-warning classification.',
-              style: theme.textTheme.bodySmall,
-            ),
           ],
         ),
       ),
