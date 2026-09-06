@@ -5,7 +5,6 @@ import 'package:infra_go/shared/app_state.dart';
 import 'package:infra_go/shared/app_theme.dart';
 import 'package:infra_go/shared/supabase_config.dart';
 import 'package:infra_go/foo/trip_history_screen.dart';
-import 'package:infra_go/tey/admin_dashboard_screen.dart';
 import 'package:infra_go/tey/driver_rating_repository.dart';
 import 'package:infra_go/tey/rewards_repository.dart';
 import 'package:infra_go/tey/rewards_screen.dart';
@@ -166,7 +165,6 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     final scheme = Theme.of(context).colorScheme;
     final role = (_profile?['role'] as String?)?.toLowerCase();
     final isDriver = role == 'driver';
-    final isAdmin = role == 'admin';
 
     return Scaffold(
       appBar: AppBar(
@@ -337,24 +335,6 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                           ),
                         ],
                       ),
-                      if (isAdmin) ...[
-                        const SizedBox(height: AppSpacing.md),
-                        SizedBox(
-                          width: double.infinity,
-                          child: OutlinedButton.icon(
-                            onPressed: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                    builder: (_) =>
-                                        const AdminDashboardScreen()),
-                              );
-                            },
-                            icon: const Icon(Icons.admin_panel_settings_outlined),
-                            label: const Text('Admin Dashboard'),
-                          ),
-                        ),
-                      ],
                     ],
                   ),
                 ),

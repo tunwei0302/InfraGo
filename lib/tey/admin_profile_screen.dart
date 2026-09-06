@@ -1,22 +1,31 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
+import 'package:infra_go/shared/app_state.dart';
 import 'package:infra_go/shared/app_theme.dart';
 import 'package:infra_go/shared/supabase_config.dart';
 import 'package:infra_go/tey/admin_review_repository.dart';
 
-class AdminDashboardScreen extends StatefulWidget {
-  const AdminDashboardScreen({super.key});
+/// Dedicated profile screen for the admin role. Unlike the shared
+/// [UserProfileScreen] used by commuters and drivers, this shows the admin
+/// review dashboard directly instead of behind a button, and omits
+/// rider/driver-only sections (reward points, driver rating, trip history).
+class AdminProfileScreen extends StatefulWidget {
+  const AdminProfileScreen({super.key});
 
   @override
-  State<AdminDashboardScreen> createState() => _AdminDashboardScreenState();
+  State<AdminProfileScreen> createState() => _AdminProfileScreenState();
 }
 
-class _AdminDashboardScreenState extends State<AdminDashboardScreen>
+class _AdminProfileScreenState extends State<AdminProfileScreen>
     with SingleTickerProviderStateMixin {
   final AdminReviewRepository _repo = AdminReviewRepository(supabase);
-  late TabController _tabs;
+  late final TabController _tabs;
+
+  Map<String, dynamic>? _profile;
+  bool _loadingProfile = true;
 
   List<PendingIdentitySubmission> _identities = const [];
   List<PendingVehicleSubmission> _vehicles = const [];
@@ -29,6 +38,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   void initState() {
     super.initState();
     _tabs = TabController(length: 2, vsync: this);
+    _loadProfile();
     _loadIdentities();
     _loadVehicles();
   }
@@ -37,6 +47,29 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   void dispose() {
     _tabs.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadProfile() async {
+    final user = supabase.auth.currentUser;
+    if (user == null) {
+      setState(() => _loadingProfile = false);
+      return;
+    }
+    try {
+      final row = await supabase
+          .from('profiles')
+          .select()
+          .eq('id', user.id)
+          .maybeSingle();
+      if (!mounted) return;
+      setState(() {
+        _profile = row;
+        _loadingProfile = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _loadingProfile = false);
+    }
   }
 
   Future<void> _loadIdentities() async {
@@ -206,12 +239,32 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
 
   @override
   Widget build(BuildContext context) {
+    final email = supabase.auth.currentUser?.email ?? '-';
     final scheme = Theme.of(context).colorScheme;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Admin Dashboard'),
+        title: const Text('Admin Profile'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: () {
+              _loadProfile();
+              _loadIdentities();
+              _loadVehicles();
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.logout),
+            onPressed: () {
+              context.read<AppState>().signOut();
+            },
+          ),
+        ],
         bottom: TabBar(
           controller: _tabs,
+          labelColor: scheme.onPrimary,
+          unselectedLabelColor: scheme.onPrimary.withValues(alpha: 0.7),
+          indicatorColor: scheme.onPrimary,
           tabs: [
             Tab(
               icon: const Icon(Icons.badge_outlined),
@@ -224,31 +277,67 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           ],
         ),
       ),
-      body: TabBarView(
-        controller: _tabs,
+      body: Column(
         children: [
-          RefreshIndicator(
-            onRefresh: _loadIdentities,
-            child: _IdentityQueueBody(
-              loading: _loadingIdentities,
-              error: _identityError,
-              items: _identities,
-              onApprove: _approveIdentity,
-              onReject: _rejectIdentity,
-              onRetry: _loadIdentities,
-              scheme: scheme,
+          Padding(
+            padding: const EdgeInsets.all(AppSpacing.marginMobile),
+            child: Row(
+              children: [
+                const CircleAvatar(
+                  radius: 32,
+                  child: Icon(Icons.admin_panel_settings, size: 32),
+                ),
+                const SizedBox(width: AppSpacing.gutter),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _loadingProfile
+                            ? 'Loading…'
+                            : (_profile?['name'] as String? ?? 'Admin'),
+                        style: Theme.of(context).textTheme.titleLarge,
+                      ),
+                      const SizedBox(height: AppSpacing.xs),
+                      Text(email),
+                      const SizedBox(height: AppSpacing.xs),
+                      Text('Role: Admin', style: AppTextStyles.labelCaps),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ),
-          RefreshIndicator(
-            onRefresh: _loadVehicles,
-            child: _VehicleQueueBody(
-              loading: _loadingVehicles,
-              error: _vehicleError,
-              items: _vehicles,
-              onApprove: _approveVehicle,
-              onReject: _rejectVehicle,
-              onRetry: _loadVehicles,
-              scheme: scheme,
+          const Divider(height: 1),
+          Expanded(
+            child: TabBarView(
+              controller: _tabs,
+              children: [
+                RefreshIndicator(
+                  onRefresh: _loadIdentities,
+                  child: _IdentityQueueBody(
+                    loading: _loadingIdentities,
+                    error: _identityError,
+                    items: _identities,
+                    onApprove: _approveIdentity,
+                    onReject: _rejectIdentity,
+                    onRetry: _loadIdentities,
+                    scheme: scheme,
+                  ),
+                ),
+                RefreshIndicator(
+                  onRefresh: _loadVehicles,
+                  child: _VehicleQueueBody(
+                    loading: _loadingVehicles,
+                    error: _vehicleError,
+                    items: _vehicles,
+                    onApprove: _approveVehicle,
+                    onReject: _rejectVehicle,
+                    onRetry: _loadVehicles,
+                    scheme: scheme,
+                  ),
+                ),
+              ],
             ),
           ),
         ],
