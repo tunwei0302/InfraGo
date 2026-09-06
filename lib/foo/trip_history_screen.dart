@@ -92,6 +92,7 @@ class _TripHistoryScreenState extends State<TripHistoryScreen> {
             address: '',
             point: LatLng(destinationLat, destinationLng),
           ),
+          standalone: true,
         ),
       ),
     );

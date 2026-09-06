@@ -82,10 +82,17 @@ class TripPlannerMapScreen extends StatefulWidget {
     super.key,
     this.initialPickup,
     this.initialDestination,
+    this.standalone = false,
   });
 
   final GeoPlace? initialPickup;
   final GeoPlace? initialDestination;
+
+  /// True when this screen is pushed on its own (e.g. "Book Again" from trip
+  /// history) rather than hosted as a tab inside CommuterHomeScreen. Shows a
+  /// floating back button, since there is otherwise no way back to the
+  /// bottom-nav tab structure — this screen's own Scaffold has no AppBar.
+  final bool standalone;
 
   @override
   State<TripPlannerMapScreen> createState() => _TripPlannerMapScreenState();
@@ -1658,6 +1665,17 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
                     _openPlaceSearch(_MapEditTarget.destination),
                 onReset: _resetPlanner,
                 onTransitTap: _loadTransitStops,
+              ),
+            ),
+          if (widget.standalone)
+            Positioned(
+              left: AppSpacing.base,
+              top: safeTop + AppSpacing.base,
+              child: _MapControlButton(
+                key: const Key('map_control_back'),
+                icon: Icons.arrow_back,
+                onPressed: () => Navigator.maybePop(context),
+                tooltip: 'Back',
               ),
             ),
         ],
