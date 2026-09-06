@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-import 'package:infra_go/heng/driver_repository.dart';
 import 'package:infra_go/kueh/chat_with_driver_screen.dart';
 import 'package:infra_go/shared/app_theme.dart';
 import 'package:infra_go/shared/supabase_config.dart';
@@ -13,8 +12,6 @@ class DriverInboxScreen extends StatefulWidget {
 }
 
 class _DriverInboxScreenState extends State<DriverInboxScreen> {
-  final _repository = DriverRepository(supabase);
-
   Stream<List<Map<String, dynamic>>> _assignedRidesStream() {
     final driverId = supabase.auth.currentUser?.id;
     if (driverId == null) {
@@ -72,8 +69,7 @@ class _DriverInboxScreenState extends State<DriverInboxScreen> {
               .toList();
           final closed = rows
               .where(
-                (r) =>
-                    r['status'] == 'completed' || r['status'] == 'cancelled',
+                (r) => r['status'] == 'completed' || r['status'] == 'cancelled',
               )
               .take(20)
               .toList();
@@ -151,10 +147,7 @@ class _EmptyHint extends StatelessWidget {
 }
 
 class _TileList extends StatelessWidget {
-  const _TileList({
-    required this.rides,
-    required this.loadLatest,
-  });
+  const _TileList({required this.rides, required this.loadLatest});
   final List<Map<String, dynamic>> rides;
   final Future<Map<String, dynamic>?> Function(String rideId) loadLatest;
 
@@ -173,10 +166,7 @@ class _TileList extends StatelessWidget {
 }
 
 class _RideInboxTile extends StatefulWidget {
-  const _RideInboxTile({
-    required this.ride,
-    required this.loadLatest,
-  });
+  const _RideInboxTile({required this.ride, required this.loadLatest});
   final Map<String, dynamic> ride;
   final Future<Map<String, dynamic>?> Function(String rideId) loadLatest;
 
@@ -197,12 +187,9 @@ class _RideInboxTileState extends State<_RideInboxTile> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final status = widget.ride['status']?.toString() ?? 'unknown';
-    final isLive =
-        status == 'driver_assigned' || status == 'en_route';
+    final isLive = status == 'driver_assigned' || status == 'en_route';
     final rideId = widget.ride['id'].toString();
-    final shortId = rideId.length > 8
-        ? rideId.substring(0, 8)
-        : rideId;
+    final shortId = rideId.length > 8 ? rideId.substring(0, 8) : rideId;
     return Material(
       color: isLive
           ? theme.colorScheme.primaryContainer.withValues(alpha: 0.35)
@@ -250,8 +237,9 @@ class _RideInboxTileState extends State<_RideInboxTile> {
                       children: [
                         Text(
                           'Ride $shortId',
-                          style: theme.textTheme.titleSmall
-                              ?.copyWith(fontWeight: FontWeight.w700),
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
                         ),
                         const Spacer(),
                         _StatusPill(status: status),
@@ -273,7 +261,7 @@ class _RideInboxTileState extends State<_RideInboxTile> {
                         final msg = data?['message_text']?.toString();
                         final fromDriver =
                             (data?['sender_id']?.toString() ?? '') ==
-                                supabase.auth.currentUser?.id;
+                            supabase.auth.currentUser?.id;
                         if (msg == null) {
                           return Text(
                             'No messages yet — quick-start from the driver screen.',
@@ -309,21 +297,12 @@ class _StatusPill extends StatelessWidget {
     final theme = Theme.of(context);
     final (label, color) = switch (status) {
       'driver_assigned' => (
-          'Driver assigned',
-          theme.colorScheme.primaryContainer,
-        ),
-      'en_route' => (
-          'En route',
-          theme.colorScheme.secondaryContainer,
-        ),
-      'completed' => (
-          'Completed',
-          theme.colorScheme.tertiaryContainer,
-        ),
-      'cancelled' => (
-          'Cancelled',
-          theme.colorScheme.errorContainer,
-        ),
+        'Driver assigned',
+        theme.colorScheme.primaryContainer,
+      ),
+      'en_route' => ('En route', theme.colorScheme.secondaryContainer),
+      'completed' => ('Completed', theme.colorScheme.tertiaryContainer),
+      'cancelled' => ('Cancelled', theme.colorScheme.errorContainer),
       _ => (status, theme.colorScheme.surfaceContainerHighest),
     };
     return Container(
@@ -335,10 +314,7 @@ class _StatusPill extends StatelessWidget {
         color: color,
         borderRadius: BorderRadius.circular(999),
       ),
-      child: Text(
-        label,
-        style: theme.textTheme.labelSmall,
-      ),
+      child: Text(label, style: theme.textTheme.labelSmall),
     );
   }
 }

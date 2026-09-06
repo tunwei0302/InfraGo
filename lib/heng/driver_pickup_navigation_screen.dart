@@ -6,19 +6,20 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 
+import 'package:infra_go/foo/payment_repository.dart';
+import 'package:infra_go/heng/driver_repository.dart';
+import 'package:infra_go/heng/group_navigation_plan.dart';
 import 'package:infra_go/kueh/chat_with_driver_screen.dart';
 import 'package:infra_go/kueh/osrm_routing_service.dart';
 import 'package:infra_go/shared/app_theme.dart';
 import 'package:infra_go/shared/supabase_config.dart';
 
 class DriverPickupNavigationScreen extends StatefulWidget {
-  DriverPickupNavigationScreen.solo({
-    super.key,
-    required this.rideId,
-  })  : groupId = null,
-        firstRideId = rideId ?? '';
+  const DriverPickupNavigationScreen.solo({super.key, required this.rideId})
+    : groupId = null,
+      firstRideId = rideId ?? '';
 
-  DriverPickupNavigationScreen.group({
+  const DriverPickupNavigationScreen.group({
     super.key,
     required this.groupId,
     required this.firstRideId,
@@ -57,6 +58,8 @@ class _DriverPickupNavigationScreenState
     extends State<DriverPickupNavigationScreen> {
   final MapController _mapController = MapController();
   final OsrmRoutingService _osrm = OsrmRoutingService();
+  final DriverRepository _repository = DriverRepository(supabase);
+  final PaymentRepository _paymentRepository = PaymentRepository(supabase);
 
   StreamSubscription<Position>? _positionSubscription;
   StreamSubscription<List<Map<String, dynamic>>>? _ridesSubscription;
@@ -65,8 +68,10 @@ class _DriverPickupNavigationScreenState
   bool _lastFallbackWasStraight = false;
 
   List<Map<String, dynamic>> _groupRides = const [];
+  Map<String, int> _groupRideSlots = const {};
   List<int> _groupStopOrder = const [];
   int? _currentStopIdx;
+  bool _advancingStop = false;
 
   Position? _driverPosition;
   double? _lastHeading;
@@ -102,43 +107,42 @@ class _DriverPickupNavigationScreenState
   Future<void> _bootstrap() async {
     try {
       await _ensurePermission();
+      final initial = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: Duration(seconds: 10),
+        ),
+      );
+      if (_disposed) return;
+      _setDriverPosition(initial);
+
+      if (_isGroup) {
+        await _subscribeGroupStreams();
+      } else {
+        await _subscribeSoloStream();
+      }
+
+      _positionSubscription =
+          Geolocator.getPositionStream(
+            locationSettings: const LocationSettings(
+              accuracy: LocationAccuracy.high,
+              distanceFilter: 5,
+            ),
+          ).listen((pos) {
+            if (_disposed) return;
+            _setDriverPosition(pos);
+            unawaited(_maybeRecalculateRoute());
+          }, onError: (_) {});
     } catch (error) {
       if (!mounted) return;
-      setState(() => _statusError = error.toString());
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('$error')),
-      );
-      return;
+      final message = _isGroup
+          ? 'Could not load the shared stop plan. Please retry.'
+          : error.toString();
+      setState(() => _statusError = message);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
     }
-
-    final initial = await Geolocator.getCurrentPosition(
-      locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.high,
-        timeLimit: Duration(seconds: 10),
-      ),
-    );
-    if (_disposed) return;
-    _setDriverPosition(initial);
-
-    if (_isGroup) {
-      await _subscribeGroupStreams();
-    } else {
-      await _subscribeSoloStream();
-    }
-
-    _positionSubscription = Geolocator.getPositionStream(
-      locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: 5,
-      ),
-    ).listen(
-      (pos) {
-        if (_disposed) return;
-        _setDriverPosition(pos);
-        unawaited(_maybeRecalculateRoute());
-      },
-      onError: (_) {},
-    );
   }
 
   Future<void> _ensurePermission() async {
@@ -167,10 +171,7 @@ class _DriverPickupNavigationScreenState
     if (!_disposed && mounted) {
       setState(() {});
       if (_following && _mapReady) {
-        _mapController.move(
-          LatLng(pos.latitude, pos.longitude),
-          16,
-        );
+        _mapController.move(LatLng(pos.latitude, pos.longitude), 16);
       }
     }
   }
@@ -229,39 +230,46 @@ class _DriverPickupNavigationScreenState
 
   Future<void> _subscribeGroupStreams() async {
     final groupId = widget.groupId!;
+    final groupRow = await _loadGroupRow(groupId);
+    if (groupRow == null) {
+      throw const FormatException('Assigned shared group was not found.');
+    }
+    _groupStopOrder = ((groupRow['optimised_stop_order'] as List?) ?? const [])
+        .map((e) => (e as num).toInt())
+        .toList(growable: false);
+    _currentStopIdx = groupRow['current_stop_idx'] is num
+        ? (groupRow['current_stop_idx'] as num).toInt()
+        : null;
+
+    final memberRows = await supabase
+        .from('ride_group_members')
+        .select('ride_id, stop_index_pickup, stop_index_destination')
+        .eq('group_id', groupId);
+    _groupRideSlots = buildGroupRideSlots(
+      stopOrder: _groupStopOrder,
+      members: memberRows.map(
+        (row) => GroupMemberStops(
+          rideId: row['ride_id'].toString(),
+          pickupOrderIndex: (row['stop_index_pickup'] as num).toInt(),
+          destinationOrderIndex: (row['stop_index_destination'] as num).toInt(),
+        ),
+      ),
+    );
 
     final ridesRows = await supabase
         .from('rides')
         .select()
-        .eq('group_id', groupId)
-        .order('created_at');
-    _groupRides =
-        ridesRows.map((e) => Map<String, dynamic>.from(e)).toList(growable: false);
-
-    final groupRow = await supabase
-        .from('ride_groups')
-        .select('optimised_stop_order, current_stop_idx')
-        .eq('id', groupId)
-        .maybeSingle();
-    if (groupRow != null) {
-      _groupStopOrder = ((groupRow['optimised_stop_order'] as List?) ?? const [])
-          .map((e) => (e as num).toInt())
-          .toList(growable: false);
-      _currentStopIdx = groupRow['current_stop_idx'] is num
-          ? (groupRow['current_stop_idx'] as num).toInt()
-          : null;
-      await _applyGroupTarget(announce: false);
-    }
+        .eq('group_id', groupId);
+    _groupRides = _orderGroupRides(ridesRows);
+    await _applyGroupTarget(announce: false);
 
     _ridesSubscription = supabase
         .from('rides')
         .stream(primaryKey: ['id'])
         .eq('group_id', groupId)
-        .order('created_at')
         .listen((rows) {
           if (_disposed) return;
-          _groupRides =
-              rows.map((e) => Map<String, dynamic>.from(e)).toList(growable: false);
+          _groupRides = _orderGroupRides(rows);
           unawaited(_applyGroupTarget(announce: true));
         });
 
@@ -272,10 +280,9 @@ class _DriverPickupNavigationScreenState
         .listen((rows) {
           if (rows.isEmpty || _disposed) return;
           final row = Map<String, dynamic>.from(rows.first);
-          _groupStopOrder =
-              ((row['optimised_stop_order'] as List?) ?? const [])
-                  .map((e) => (e as num).toInt())
-                  .toList(growable: false);
+          _groupStopOrder = ((row['optimised_stop_order'] as List?) ?? const [])
+              .map((e) => (e as num).toInt())
+              .toList(growable: false);
           final newIdx = row['current_stop_idx'] is num
               ? (row['current_stop_idx'] as num).toInt()
               : null;
@@ -289,9 +296,48 @@ class _DriverPickupNavigationScreenState
         });
   }
 
+  Future<Map<String, dynamic>?> _loadGroupRow(String groupId) async {
+    try {
+      return await supabase
+          .from('ride_groups')
+          .select('optimised_stop_order, current_stop_idx, status')
+          .eq('id', groupId)
+          .maybeSingle();
+    } catch (error) {
+      // Keep the screen usable while an older database is being migrated.
+      if (!error.toString().contains('current_stop_idx')) rethrow;
+      return supabase
+          .from('ride_groups')
+          .select('optimised_stop_order, status')
+          .eq('id', groupId)
+          .maybeSingle();
+    }
+  }
+
+  List<Map<String, dynamic>> _orderGroupRides(
+    Iterable<Map<String, dynamic>> rows,
+  ) {
+    final ordered = List<Map<String, dynamic>?>.filled(2, null);
+    for (final source in rows) {
+      final row = Map<String, dynamic>.from(source);
+      final slot = _groupRideSlots[row['id'].toString()];
+      if (slot != null && slot >= 0 && slot < ordered.length) {
+        ordered[slot] = row;
+      }
+    }
+    final result = ordered.whereType<Map<String, dynamic>>().toList();
+    if (result.length != 2) {
+      throw const FormatException('Both shared rides must be readable.');
+    }
+    return result;
+  }
+
   Future<void> _applyGroupTarget({required bool announce}) async {
     if (_groupRides.isEmpty || _groupStopOrder.isEmpty) return;
-    final stopIdx = _currentStopIdx ?? 0;
+    final stopIdx = activeGroupStopIndex(
+      _currentStopIdx,
+      _groupStopOrder.length,
+    );
     if (stopIdx < 0 || stopIdx >= _groupStopOrder.length) return;
     final stopCode = _groupStopOrder[stopIdx];
     final riderIndex = stopCode.isEven ? 0 : 1;
@@ -314,7 +360,8 @@ class _DriverPickupNavigationScreenState
     final slot = riderIndex + 1;
     final target = _NavTarget(
       point: LatLng(lat, lng),
-      label: 'Stop ${stopIdx + 1} · ${isPickup ? 'Pickup' : 'Drop off'} Rider $slot · $text',
+      label:
+          'Stop ${stopIdx + 1} · ${isPickup ? 'Pickup' : 'Drop off'} Rider $slot · $text',
       shortLabel: '$pd$slot · $text',
       kind: _NavTargetKind.groupStop,
       riderSlot: slot,
@@ -324,7 +371,8 @@ class _DriverPickupNavigationScreenState
   }
 
   Future<void> _applyTarget(_NavTarget next, {required bool announce}) async {
-    final changed = _target == null ||
+    final changed =
+        _target == null ||
         _target!.point.latitude.toStringAsFixed(5) !=
             next.point.latitude.toStringAsFixed(5) ||
         _target!.point.longitude.toStringAsFixed(5) !=
@@ -340,9 +388,9 @@ class _DriverPickupNavigationScreenState
         unawaited(_fitRoute());
       }
       if (announce && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(next.label)),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(next.label)));
       }
     }
   }
@@ -351,7 +399,9 @@ class _DriverPickupNavigationScreenState
     final pos = _driverPosition;
     final target = _targetPoint;
     if (pos == null || target == null) return;
-    if (!force && !_shouldRecalculate(LatLng(pos.latitude, pos.longitude))) return;
+    if (!force && !_shouldRecalculate(LatLng(pos.latitude, pos.longitude))) {
+      return;
+    }
     _lastRecalcAt = DateTime.now();
     try {
       final route = await _osrm.route(
@@ -373,22 +423,18 @@ class _DriverPickupNavigationScreenState
           LatLng(pos.latitude, pos.longitude),
           target,
         ),
-        durationSeconds: haversineMeters(
-                  LatLng(pos.latitude, pos.longitude),
-                  target,
-                ) /
-                1000 /
-                25 *
-                3600,
+        durationSeconds:
+            haversineMeters(LatLng(pos.latitude, pos.longitude), target) /
+            1000 /
+            25 *
+            3600,
       );
       _routeError = error.toString();
       _lastFallbackWasStraight = true;
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-              'Routing unavailable, using straight line: $error',
-            ),
+            content: Text('Routing unavailable, using straight line: $error'),
             duration: const Duration(seconds: 5),
           ),
         );
@@ -424,7 +470,8 @@ class _DriverPickupNavigationScreenState
     final dyA = b.latitude - a.latitude;
     final len2 = dxA * dxA + dyA * dyA;
     if (len2 == 0) return haversineMeters(p, a);
-    final t = ((p.longitude - a.longitude) * dxA + (p.latitude - a.latitude) * dyA) /
+    final t =
+        ((p.longitude - a.longitude) * dxA + (p.latitude - a.latitude) * dyA) /
         len2;
     final tc = t.clamp(0.0, 1.0);
     final proj = LatLng(a.latitude + tc * dyA, a.longitude + tc * dxA);
@@ -478,10 +525,12 @@ class _DriverPickupNavigationScreenState
         final afterProjOnSeg = segLen - accumDistFromStart;
         if (walked + afterProjOnSeg >= waypointTargetMeters) {
           final ratio =
-              (waypointTargetMeters - walked) / (afterProjOnSeg > 0 ? afterProjOnSeg : 1);
+              (waypointTargetMeters - walked) /
+              (afterProjOnSeg > 0 ? afterProjOnSeg : 1);
           waypoint = LatLng(
             prev.latitude + (next.latitude - prev.latitude) * ratio.clamp(0, 1),
-            prev.longitude + (next.longitude - prev.longitude) * ratio.clamp(0, 1),
+            prev.longitude +
+                (next.longitude - prev.longitude) * ratio.clamp(0, 1),
           );
           remainingAlong = waypointTargetMeters;
           break;
@@ -494,7 +543,8 @@ class _DriverPickupNavigationScreenState
               (waypointTargetMeters - walked) / (segLen > 0 ? segLen : 1);
           waypoint = LatLng(
             prev.latitude + (next.latitude - prev.latitude) * ratio.clamp(0, 1),
-            prev.longitude + (next.longitude - prev.longitude) * ratio.clamp(0, 1),
+            prev.longitude +
+                (next.longitude - prev.longitude) * ratio.clamp(0, 1),
           );
           remainingAlong = waypointTargetMeters;
           break;
@@ -507,18 +557,23 @@ class _DriverPickupNavigationScreenState
     waypoint ??= route.points.last;
     remainingAlong = remainingAlong > 0
         ? remainingAlong
-        : (route.distanceMeters - _distanceAlongFromStart(route.points, projIdx, accumDistFromStart));
+        : (route.distanceMeters -
+              _distanceAlongFromStart(
+                route.points,
+                projIdx,
+                accumDistFromStart,
+              ));
 
     final heading =
-        _lastHeading ?? bearingBetween(driverPos, route.points[(projIdx + 1).clamp(0, route.points.length - 1)]);
+        _lastHeading ??
+        bearingBetween(
+          driverPos,
+          route.points[(projIdx + 1).clamp(0, route.points.length - 1)],
+        );
     final nextBearing = bearingBetween(driverPos, waypoint);
     final diff = ((nextBearing - heading) + 360) % 360;
     final (icon, text) = _classifyDirection(diff);
-    return _Maneuver(
-      icon: icon,
-      text: text,
-      distanceMeters: remainingAlong,
-    );
+    return _Maneuver(icon: icon, text: text, distanceMeters: remainingAlong);
   }
 
   static (IconData, String) _classifyDirection(double diff) {
@@ -534,10 +589,8 @@ class _DriverPickupNavigationScreenState
     return (Icons.turn_slight_left_outlined, 'Slight left');
   }
 
-  (int index, double distFromPrevSegmentStartMeters, LatLng projectedPoint) _projectOntoPolyline(
-    LatLng p,
-    List<LatLng> polyline,
-  ) {
+  (int index, double distFromPrevSegmentStartMeters, LatLng projectedPoint)
+  _projectOntoPolyline(LatLng p, List<LatLng> polyline) {
     int bestI = 0;
     double bestDist = double.infinity;
     double bestT = 0;
@@ -551,8 +604,11 @@ class _DriverPickupNavigationScreenState
       if (len2 == 0) {
         t = 0;
       } else {
-        t = (((p.longitude - a.longitude) * dxB + (p.latitude - a.latitude) * dyB) / len2)
-            .clamp(0.0, 1.0);
+        t =
+            (((p.longitude - a.longitude) * dxB +
+                        (p.latitude - a.latitude) * dyB) /
+                    len2)
+                .clamp(0.0, 1.0);
       }
       final proj = LatLng(a.latitude + t * dyB, a.longitude + t * dxB);
       final d = haversineMeters(p, proj);
@@ -585,11 +641,17 @@ class _DriverPickupNavigationScreenState
     final target = _targetPoint;
     final route = _routeResult;
     if (target == null) return 0;
-    if (pos == null) return route?.distanceMeters ?? haversineMeters(LatLng(0, 0), target);
+    if (pos == null) {
+      return route?.distanceMeters ?? haversineMeters(LatLng(0, 0), target);
+    }
     final driverPos = LatLng(pos.latitude, pos.longitude);
-    if (route == null || route.points.length < 2) return haversineMeters(driverPos, target);
+    if (route == null || route.points.length < 2) {
+      return haversineMeters(driverPos, target);
+    }
     final (projIdx, accum, _) = _projectOntoPolyline(driverPos, route.points);
-    final fromProj = route.distanceMeters - _distanceAlongFromStart(route.points, projIdx, accum);
+    final fromProj =
+        route.distanceMeters -
+        _distanceAlongFromStart(route.points, projIdx, accum);
     return fromProj < 0 ? 0 : fromProj;
   }
 
@@ -638,10 +700,65 @@ class _DriverPickupNavigationScreenState
     );
   }
 
+  Future<void> _confirmCurrentGroupStop() async {
+    final groupId = widget.groupId;
+    if (groupId == null || _advancingStop) return;
+    setState(() => _advancingStop = true);
+    try {
+      final result = await _repository.advanceGroupStop(groupId);
+      if (result['success'] != true) {
+        throw StateError(result['reason']?.toString() ?? 'advance_failed');
+      }
+      final confirmedRideId = result['confirmed_ride_id']?.toString();
+      if (result['confirmed_stop_kind'] == 'dropoff' &&
+          confirmedRideId != null) {
+        await _settleRidePayment(confirmedRideId);
+      }
+      final completed = result['completed'] == true;
+      if (completed) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Shared ride completed.')));
+        Navigator.pop(context, true);
+        return;
+      }
+      final nextIndex = result['current_stop_idx'];
+      if (nextIndex is num) _currentStopIdx = nextIndex.toInt();
+      await _applyGroupTarget(announce: true);
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not confirm this stop: $error')),
+      );
+    } finally {
+      if (mounted) setState(() => _advancingStop = false);
+    }
+  }
+
+  Future<void> _settleRidePayment(String rideId) async {
+    try {
+      final cash = await _paymentRepository.completeCashPayment(rideId);
+      if (cash['success'] == true) return;
+      await _paymentRepository.captureWalletPayment(rideId);
+    } catch (_) {
+      // Completion is durable; the idempotent payment call can be retried.
+    }
+  }
+
+  String get _confirmStopLabel {
+    if (_groupStopOrder.isEmpty) return 'Confirm stop';
+    final index = activeGroupStopIndex(_currentStopIdx, _groupStopOrder.length);
+    final isPickup = _groupStopOrder[index] < 2;
+    final isLast = nextGroupStopIndex(index, _groupStopOrder.length) == null;
+    if (isLast) return 'Complete final drop-off';
+    return isPickup ? 'Confirm pickup & next stop' : 'Confirm drop-off & next';
+  }
+
   Future<void> _openChatForCurrentRide() async {
     final rideId = _target?.rideId;
     if (!mounted) return;
-    if (_isGroup && rideId == null) {
+    if (_isGroup) {
       final selected = await showDialog<int>(
         context: context,
         builder: (ctx) => SimpleDialog(
@@ -652,13 +769,17 @@ class _DriverPickupNavigationScreenState
                 onPressed: () => Navigator.pop(ctx, i),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(vertical: 6),
-                  child: Text('Rider ${i + 1} · ${_groupRides[i]['pickup'] ?? 'Pickup'}'),
+                  child: Text(
+                    'Rider ${i + 1} · ${_groupRides[i]['pickup'] ?? 'Pickup'}',
+                  ),
                 ),
               ),
           ],
         ),
       );
-      if (selected == null || selected >= _groupRides.length) return;
+      if (!mounted || selected == null || selected >= _groupRides.length) {
+        return;
+      }
       final openRideId = _groupRides[selected]['id'].toString();
       await Navigator.push(
         context,
@@ -732,8 +853,7 @@ class _DriverPickupNavigationScreenState
                 ],
               ),
               child: Transform.rotate(
-                angle:
-                    (_lastHeading ?? 0) * 3.14159265 / 180,
+                angle: (_lastHeading ?? 0) * 3.14159265 / 180,
                 child: const Icon(
                   Icons.navigation,
                   color: Colors.white,
@@ -746,7 +866,8 @@ class _DriverPickupNavigationScreenState
       );
     }
     if (target != null) {
-      final isPickup = _target?.kind == _NavTargetKind.soloPickup ||
+      final isPickup =
+          _target?.kind == _NavTargetKind.soloPickup ||
           (_target?.kind == _NavTargetKind.groupStop &&
               _currentStopIdx != null &&
               (_groupStopOrder.isNotEmpty
@@ -778,7 +899,9 @@ class _DriverPickupNavigationScreenState
                 );
               }
             },
-            icon: Icon(_following ? Icons.my_location : Icons.location_searching),
+            icon: Icon(
+              _following ? Icons.my_location : Icons.location_searching,
+            ),
             color: _following ? theme.colorScheme.primary : null,
           ),
         ],
@@ -798,7 +921,7 @@ class _DriverPickupNavigationScreenState
                 _mapReady = true;
                 unawaited(_fitRoute());
               },
-              onPointerDown: (_, __) {
+              onPointerDown: (_, _) {
                 if (_following) setState(() => _following = false);
               },
             ),
@@ -846,7 +969,10 @@ class _DriverPickupNavigationScreenState
               eta: eta,
               remainingMeters: remainingMeters,
               arrived: arrived,
-              onArrived: _arrivedAction,
+              onMessageRider: _arrivedAction,
+              onConfirmStop: _isGroup ? _confirmCurrentGroupStop : null,
+              confirmStopLabel: _confirmStopLabel,
+              confirmingStop: _advancingStop,
               lastFallback: _lastFallbackWasStraight,
               routeError: _routeError,
             ),
@@ -857,7 +983,6 @@ class _DriverPickupNavigationScreenState
   }
 
   Marker _buildTargetMarker(LatLng point, bool isPickup) {
-    final theme = Theme.of(context);
     final riderSlot = _target?.riderSlot;
     final kind = _target?.kind ?? _NavTargetKind.soloPickup;
     final String badgeText;
@@ -865,7 +990,9 @@ class _DriverPickupNavigationScreenState
       badgeText = 'Destination';
     } else if (kind == _NavTargetKind.groupStop && riderSlot != null) {
       badgeText = _groupStopOrder.isNotEmpty && _currentStopIdx != null
-          ? (_groupStopOrder[_currentStopIdx!] < 2 ? 'P$riderSlot' : 'D$riderSlot')
+          ? (_groupStopOrder[_currentStopIdx!] < 2
+                ? 'P$riderSlot'
+                : 'D$riderSlot')
           : 'P$riderSlot';
     } else {
       badgeText = 'Pickup';
@@ -956,7 +1083,10 @@ class _NavigationCard extends StatelessWidget {
     required this.eta,
     required this.remainingMeters,
     required this.arrived,
-    required this.onArrived,
+    required this.onMessageRider,
+    required this.onConfirmStop,
+    required this.confirmStopLabel,
+    required this.confirmingStop,
     required this.lastFallback,
     required this.routeError,
   });
@@ -967,7 +1097,10 @@ class _NavigationCard extends StatelessWidget {
   final String eta;
   final double remainingMeters;
   final bool arrived;
-  final VoidCallback onArrived;
+  final VoidCallback onMessageRider;
+  final VoidCallback? onConfirmStop;
+  final String confirmStopLabel;
+  final bool confirmingStop;
   final bool lastFallback;
   final String? routeError;
 
@@ -978,13 +1111,13 @@ class _NavigationCard extends StatelessWidget {
     final cardColor = arrivedState
         ? theme.colorScheme.tertiaryContainer
         : lastFallback
-            ? theme.colorScheme.surfaceContainerHigh
-            : theme.colorScheme.primaryContainer.withValues(alpha: 0.85);
+        ? theme.colorScheme.surfaceContainerHigh
+        : theme.colorScheme.primaryContainer.withValues(alpha: 0.85);
     final onCard = arrivedState
         ? theme.colorScheme.onTertiaryContainer
         : lastFallback
-            ? theme.colorScheme.onSurface
-            : theme.colorScheme.onPrimaryContainer;
+        ? theme.colorScheme.onSurface
+        : theme.colorScheme.onPrimaryContainer;
     final distanceStr = remainingMeters < 1000
         ? '${remainingMeters.round()} m'
         : '${(remainingMeters / 1000).toStringAsFixed(1)} km';
@@ -1049,7 +1182,9 @@ class _NavigationCard extends StatelessWidget {
                         const SizedBox(height: AppSpacing.xs),
                         Text(
                           'Confirm arrival with the rider or tap below to send a quick message.',
-                          style: theme.textTheme.bodySmall?.copyWith(color: onCard),
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: onCard,
+                          ),
                         ),
                       ],
                     ),
@@ -1059,12 +1194,30 @@ class _NavigationCard extends StatelessWidget {
               const SizedBox(height: AppSpacing.sm),
               SizedBox(
                 width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed: onArrived,
+                child: OutlinedButton.icon(
+                  onPressed: onMessageRider,
                   icon: const Icon(Icons.chat_bubble_outline),
                   label: const Text('Send "I have arrived" quick update'),
                 ),
               ),
+              if (onConfirmStop != null) ...[
+                const SizedBox(height: AppSpacing.sm),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: confirmingStop ? null : onConfirmStop,
+                    icon: confirmingStop
+                        ? const SizedBox.square(
+                            dimension: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.check_circle_outline),
+                    label: Text(
+                      confirmingStop ? 'Updating group…' : confirmStopLabel,
+                    ),
+                  ),
+                ),
+              ],
             ] else ...[
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -1083,7 +1236,9 @@ class _NavigationCard extends StatelessWidget {
                             ),
                             decoration: BoxDecoration(
                               color: onCard.withValues(alpha: 0.12),
-                              borderRadius: BorderRadius.circular(AppRadius.full),
+                              borderRadius: BorderRadius.circular(
+                                AppRadius.full,
+                              ),
                             ),
                             child: Text(
                               maneuverDistance < 1000
@@ -1113,7 +1268,9 @@ class _NavigationCard extends StatelessWidget {
                         const SizedBox(height: AppSpacing.xs),
                         Text(
                           target?.label ?? 'Loading navigation target…',
-                          style: theme.textTheme.bodyMedium?.copyWith(color: onCard),
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: onCard,
+                          ),
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                         ),

@@ -10,6 +10,7 @@ import 'package:infra_go/heng/driver_onboarding_screen.dart';
 import 'package:infra_go/heng/driver_pickup_navigation_screen.dart';
 import 'package:infra_go/heng/driver_presence_service.dart';
 import 'package:infra_go/heng/driver_repository.dart';
+import 'package:infra_go/heng/group_navigation_plan.dart';
 import 'package:infra_go/kueh/chat_with_driver_screen.dart';
 import 'package:infra_go/shared/app_theme.dart';
 import 'package:infra_go/shared/supabase_config.dart';
@@ -175,34 +176,6 @@ class _DriverHubTabState extends State<_DriverHubTab> {
     }
   }
 
-  Future<void> _advanceStop(String groupId) async {
-    setState(() => _actionRideId = groupId);
-    try {
-      final result = await _repository.advanceGroupStop(groupId);
-      if (result['success'] != true) {
-        throw StateError(result['reason']?.toString() ?? 'advance_failed');
-      }
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Stop ${(result['current_stop_idx'] as int) + 1} logged — '
-              '${result['is_pickup_stop'] == true ? 'Pickup' : 'Drop off'} complete.',
-            ),
-          ),
-        );
-      }
-    } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not log stop: $error')),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _actionRideId = null);
-    }
-  }
-
   Future<void> _settleCompletedRides(Map<String, dynamic> ride) async {
     final groupId = ride['group_id']?.toString();
     final rideIds = groupId == null
@@ -212,13 +185,68 @@ class _DriverHubTabState extends State<_DriverHubTab> {
               .map((row) => (row as Map)['id'].toString())
               .toList();
     for (final id in rideIds) {
-      try {
-        final cash = await _paymentRepository.completeCashPayment(id);
-        if (cash['success'] == true) continue;
-        await _paymentRepository.captureWalletPayment(id);
-      } catch (_) {
-        // Completion remains durable; payment repository is idempotent and retryable.
+      await _settleRidePayment(id);
+    }
+  }
+
+  Future<void> _settleRidePayment(String rideId) async {
+    try {
+      final cash = await _paymentRepository.completeCashPayment(rideId);
+      if (cash['success'] == true) return;
+      await _paymentRepository.captureWalletPayment(rideId);
+    } catch (_) {
+      // Completion remains durable; payment repository is idempotent and retryable.
+    }
+  }
+
+  Future<void> _markSharedStopDone(String groupId) async {
+    if (_actionRideId != null) return;
+    setState(() => _actionRideId = groupId);
+    try {
+      final result = await _repository.advanceGroupStop(groupId);
+      if (result['success'] != true) {
+        throw StateError(result['reason']?.toString() ?? 'advance_failed');
       }
+
+      final completed = result['completed'] == true;
+      final confirmedIndex = (result['confirmed_stop_idx'] as num?)?.toInt();
+      final nextIndex = (result['current_stop_idx'] as num?)?.toInt();
+      final confirmedRideId = result['confirmed_ride_id']?.toString();
+      final confirmedStopKind = result['confirmed_stop_kind']?.toString();
+      if (confirmedStopKind == 'dropoff' && confirmedRideId != null) {
+        await _settleRidePayment(confirmedRideId);
+      }
+      if (completed) {
+        _trackedAssignment = null;
+        if (_isOnline) {
+          final readiness = await _repository.loadReadiness();
+          final capacity = readiness.vehicle!.passengerCapacity;
+          await _presence.start(
+            vehicleCategories: [
+              'economy_4',
+              if (capacity >= 2) 'shared_economy',
+              if (capacity >= 6) 'six_seater',
+            ],
+          );
+        }
+      }
+
+      if (!mounted) return;
+      final message = completed
+          ? 'Final drop-off marked done. Shared ride completed.'
+          : 'Stop ${(confirmedIndex ?? 0) + 1} marked done. '
+                'Continue to stop ${(nextIndex ?? 0) + 1}.';
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not mark this stop done: $error')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _actionRideId = null);
     }
   }
 
@@ -300,14 +328,15 @@ class _DriverHubTabState extends State<_DriverHubTab> {
         if (snapshot.hasError) {
           return Text('Could not load active ride: ${snapshot.error}');
         }
-        final groupRides = (snapshot.data ?? [])
+        final allDriverRides = snapshot.data ?? [];
+        final activeRides = allDriverRides
             .where(
               (row) =>
                   row['status'] == 'driver_assigned' ||
                   row['status'] == 'en_route',
             )
             .toList();
-        if (groupRides.isEmpty) {
+        if (activeRides.isEmpty) {
           return const Card(
             child: Padding(
               padding: EdgeInsets.all(AppSpacing.gutter),
@@ -317,9 +346,18 @@ class _DriverHubTabState extends State<_DriverHubTab> {
             ),
           );
         }
-        final lead = groupRides.first;
+        final lead = activeRides.first;
         final groupId = lead['group_id']?.toString();
         final isShared = groupId != null;
+        final conversationRides = isShared
+            ? allDriverRides
+                  .where(
+                    (row) =>
+                        row['group_id']?.toString() == groupId &&
+                        row['status'] != 'cancelled',
+                  )
+                  .toList()
+            : activeRides;
         final status = lead['status'].toString();
         final actionKey = groupId ?? lead['id'].toString();
         final isBusy = _actionRideId == actionKey;
@@ -337,7 +375,7 @@ class _DriverHubTabState extends State<_DriverHubTab> {
                   ),
                 Text(
                   isShared
-                      ? '${groupRides.length} rider chats — one private inbox per ride'
+                      ? '${conversationRides.length} rider chats — one private inbox per ride'
                       : '${lead['pickup']} → ${lead['destination']}',
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
@@ -352,9 +390,8 @@ class _DriverHubTabState extends State<_DriverHubTab> {
                   const SizedBox(height: AppSpacing.base),
                   _GroupTripStepper(
                     groupId: groupId,
-                    firstRide: lead,
                     actionBusy: isBusy,
-                    onAdvance: () => _advanceStop(groupId),
+                    onMarkDone: () => _markSharedStopDone(groupId),
                   ),
                 ],
                 const SizedBox(height: AppSpacing.sm),
@@ -362,53 +399,51 @@ class _DriverHubTabState extends State<_DriverHubTab> {
                   spacing: AppSpacing.sm,
                   runSpacing: AppSpacing.base,
                   children: [
-                    ...groupRides.asMap().entries.map(
-                      (e) {
-                        final index = e.key;
-                        final r = e.value;
-                        return OutlinedButton.icon(
-                          onPressed: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => ChatWithDriverScreen(
-                                rideId: r['id'].toString(),
-                                title: isShared
-                                    ? 'Rider chat ${index + 1} (separate)'
-                                    : 'Message passenger',
-                                isDriverView: true,
-                                quickReplies: const [
-                                  'I’m on my way.',
-                                  'I have arrived at the pickup point.',
-                                  'Please meet me at the pickup point.',
-                                  'Traffic delay — I may be about 5 minutes late.',
-                                  'Please confirm the pickup landmark shown in your app.',
-                                ],
-                              ),
+                    ...conversationRides.asMap().entries.map((e) {
+                      final index = e.key;
+                      final r = e.value;
+                      return OutlinedButton.icon(
+                        onPressed: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => ChatWithDriverScreen(
+                              rideId: r['id'].toString(),
+                              title: isShared
+                                  ? 'Rider chat ${index + 1} (separate)'
+                                  : 'Message passenger',
+                              isDriverView: true,
+                              quickReplies: const [
+                                'I’m on my way.',
+                                'I have arrived at the pickup point.',
+                                'Please meet me at the pickup point.',
+                                'Traffic delay — I may be about 5 minutes late.',
+                                'Please confirm the pickup landmark shown in your app.',
+                              ],
                             ),
                           ),
-                          icon: const Icon(Icons.chat_bubble_outline),
-                          label: Text(
-                            isShared ? 'Rider ${index + 1}' : 'Contact rider',
-                          ),
-                        );
-                      },
-                    ),
+                        ),
+                        icon: const Icon(Icons.chat_bubble_outline),
+                        label: Text(
+                          isShared ? 'Rider ${index + 1}' : 'Contact rider',
+                        ),
+                      );
+                    }),
                     FilledButton.icon(
                       onPressed: isBusy
                           ? null
                           : () => Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: isShared
-                                      ? (_) => DriverPickupNavigationScreen.group(
-                                            groupId: groupId!,
-                                            firstRideId: lead['id'].toString(),
-                                          )
-                                      : (_) => DriverPickupNavigationScreen.solo(
-                                            rideId: lead['id'].toString(),
-                                          ),
-                                ),
+                              context,
+                              MaterialPageRoute(
+                                builder: isShared
+                                    ? (_) => DriverPickupNavigationScreen.group(
+                                        groupId: groupId,
+                                        firstRideId: lead['id'].toString(),
+                                      )
+                                    : (_) => DriverPickupNavigationScreen.solo(
+                                        rideId: lead['id'].toString(),
+                                      ),
                               ),
+                            ),
                       icon: const Icon(Icons.navigation_outlined),
                       label: const Text('Navigate'),
                     ),
@@ -425,14 +460,6 @@ class _DriverHubTabState extends State<_DriverHubTab> {
                             ? null
                             : () => _transition(lead, 'completed'),
                         child: const Text('Complete ride'),
-                      ),
-                    if (isShared && status == 'en_route')
-                      FilledButton.icon(
-                        onPressed: isBusy
-                            ? null
-                            : () => _transition(lead, 'completed'),
-                        icon: const Icon(Icons.flag_outlined),
-                        label: const Text('Complete all drop offs'),
                       ),
                     TextButton(
                       onPressed: isBusy
@@ -613,8 +640,7 @@ class _CancellationCountdown extends StatefulWidget {
   final Map<String, dynamic> ride;
 
   @override
-  State<_CancellationCountdown> createState() =>
-      _CancellationCountdownState();
+  State<_CancellationCountdown> createState() => _CancellationCountdownState();
 }
 
 class _CancellationCountdownState extends State<_CancellationCountdown> {
@@ -652,17 +678,14 @@ class _CancellationCountdownState extends State<_CancellationCountdown> {
         padding: const EdgeInsets.only(bottom: AppSpacing.sm),
         child: Row(
           children: [
-            Icon(
-              Icons.info_outline,
-              size: 18,
-              color: theme.colorScheme.error,
-            ),
+            Icon(Icons.info_outline, size: 18, color: theme.colorScheme.error),
             const SizedBox(width: AppSpacing.xs),
             Expanded(
               child: Text(
                 'Free cancel window passed — rider cancellation now incurs a fee.',
-                style: theme.textTheme.bodySmall
-                    ?.copyWith(color: theme.colorScheme.error),
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.error,
+                ),
               ),
             ),
           ],
@@ -710,10 +733,7 @@ class _CancellationCountdownState extends State<_CancellationCountdown> {
                 ),
               ),
               const Spacer(),
-              Text(
-                'Grace period: 3 min',
-                style: theme.textTheme.bodySmall,
-              ),
+              Text('Grace period: 3 min', style: theme.textTheme.bodySmall),
             ],
           ),
           const SizedBox(height: AppSpacing.xs),
@@ -721,8 +741,8 @@ class _CancellationCountdownState extends State<_CancellationCountdown> {
             borderRadius: BorderRadius.circular(999),
             child: LinearProgressIndicator(
               value: percent.clamp(0, 1),
-              backgroundColor:
-                  theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+              backgroundColor: theme.colorScheme.surfaceContainerHighest
+                  .withValues(alpha: 0.4),
             ),
           ),
         ],
@@ -734,15 +754,13 @@ class _CancellationCountdownState extends State<_CancellationCountdown> {
 class _GroupTripStepper extends StatelessWidget {
   const _GroupTripStepper({
     required this.groupId,
-    required this.firstRide,
     required this.actionBusy,
-    required this.onAdvance,
+    required this.onMarkDone,
   });
 
   final String? groupId;
-  final Map<String, dynamic> firstRide;
   final bool actionBusy;
-  final VoidCallback onAdvance;
+  final VoidCallback onMarkDone;
 
   Future<({List<int> stops, int? current})> _load() async {
     final gid = groupId;
@@ -752,7 +770,8 @@ class _GroupTripStepper extends StatelessWidget {
         .select('optimised_stop_order, current_stop_idx')
         .eq('id', gid)
         .maybeSingle();
-    final stops = (row?['optimised_stop_order'] as List?)
+    final stops =
+        (row?['optimised_stop_order'] as List?)
             ?.map((e) => (e as num).toInt())
             .toList() ??
         const <int>[];
@@ -774,6 +793,10 @@ class _GroupTripStepper extends StatelessWidget {
         if (stops.isEmpty) {
           return const Text('Stop order loading…');
         }
+        final action = currentGroupStopAction(
+          stopOrder: stops,
+          storedIndex: current,
+        );
         final displayStops = [
           for (int i = 0; i < stops.length; i++)
             (
@@ -795,9 +818,12 @@ class _GroupTripStepper extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Tap "Advance to next stop" after each pickup/drop off.',
-                style: theme.textTheme.bodySmall
-                    ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                current == null
+                    ? 'Preparing the first pickup…'
+                    : 'Stop ${current + 1} of ${stops.length} is active. Mark it done after the pickup or drop-off happens.',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
               ),
               const SizedBox(height: AppSpacing.sm),
               Row(
@@ -809,20 +835,38 @@ class _GroupTripStepper extends StatelessWidget {
                         children: [
                           CircleAvatar(
                             radius: 18,
-                            backgroundColor:
-                                (current != null && i <= current)
-                                    ? theme.colorScheme.primary
-                                    : theme.colorScheme.surfaceContainerHighest,
-                            child: Text(
-                              (i + 1).toString(),
-                              style: TextStyle(
-                                fontWeight: FontWeight.w700,
-                                color: (current != null && i <= current)
-                                    ? theme.colorScheme.onPrimary
-                                    : theme.colorScheme.onSurfaceVariant,
-                              ),
+                            backgroundColor: (current != null && i < current)
+                                ? theme.colorScheme.primary
+                                : (current == i
+                                      ? theme.colorScheme.tertiary
+                                      : theme
+                                            .colorScheme
+                                            .surfaceContainerHighest),
+                            child: Icon(
+                              current != null && i < current
+                                  ? Icons.check
+                                  : (current == i
+                                        ? Icons.navigation_outlined
+                                        : Icons.circle_outlined),
+                              size: 18,
+                              color: (current != null && i <= current)
+                                  ? (i < current
+                                        ? theme.colorScheme.onPrimary
+                                        : theme.colorScheme.onTertiary)
+                                  : theme.colorScheme.onSurfaceVariant,
                             ),
                           ),
+                          if (current == i)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 2),
+                              child: Text(
+                                'NEXT',
+                                style: theme.textTheme.labelSmall?.copyWith(
+                                  color: theme.colorScheme.tertiary,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
                           const SizedBox(height: AppSpacing.xs),
                           Text(
                             displayStops[i].display,
@@ -853,20 +897,25 @@ class _GroupTripStepper extends StatelessWidget {
                   ],
                 ],
               ),
-              const SizedBox(height: AppSpacing.sm),
+              const SizedBox(height: AppSpacing.base),
               SizedBox(
                 width: double.infinity,
                 child: FilledButton.icon(
-                  onPressed: actionBusy || (current != null && current >= 3)
-                      ? null
-                      : onAdvance,
-                  icon: const Icon(Icons.double_arrow_outlined),
+                  onPressed: actionBusy ? null : onMarkDone,
+                  icon: actionBusy
+                      ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Icon(
+                          action.isPickup
+                              ? Icons.person_add_alt_1
+                              : Icons.where_to_vote_outlined,
+                        ),
                   label: Text(
                     actionBusy
-                        ? 'Updating…'
-                        : (current == null
-                            ? 'Advance to stop 1 (first pickup)'
-                            : 'Advance to stop ${current + 2}'),
+                        ? 'Updating ${action.code}…'
+                        : action.buttonLabel,
                   ),
                 ),
               ),

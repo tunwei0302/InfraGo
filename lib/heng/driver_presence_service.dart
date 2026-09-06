@@ -109,15 +109,21 @@ class DriverPresenceService {
       _lastKnownPosition = LatLng(position.latitude, position.longitude);
       _lastKnownPositionAt = DateTime.now();
       for (final rideId in rideIds) {
-        await _client.rpc(
-          'publish_assigned_driver_location',
-          params: {
-            'p_ride_id': rideId,
-            'p_exact_lat': position.latitude,
-            'p_exact_lng': position.longitude,
-            'p_heading': position.heading.isFinite ? position.heading : null,
-          },
-        );
+        try {
+          await _client.rpc(
+            'publish_assigned_driver_location',
+            params: {
+              'p_ride_id': rideId,
+              'p_exact_lat': position.latitude,
+              'p_exact_lng': position.longitude,
+              'p_heading': position.heading.isFinite ? position.heading : null,
+            },
+          );
+        } on PostgrestException catch (error) {
+          // A shared rider stops receiving live driver coordinates as soon as
+          // their own drop-off completes. Keep publishing for the other rider.
+          if (!error.message.contains('ride_not_assigned')) rethrow;
+        }
       }
     } finally {
       _publishing = false;
