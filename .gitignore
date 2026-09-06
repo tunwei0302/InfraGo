@@ -57,3 +57,6 @@ app.*.map.json
 
 # Claude
 .claude/
+
+# Internal team docs (not part of the public repo)
+/docs/
