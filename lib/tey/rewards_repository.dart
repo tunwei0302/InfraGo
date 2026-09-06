@@ -74,7 +74,6 @@ class RewardsRepository {
     SupabaseClient client, {
     RpcCaller? rpcCaller,
     RewardRowsSelector? selectRows,
-    String? Function()? currentUserId,
   })  : _rpc = rpcCaller ?? client.rpc,
         _selectRows = selectRows ??
             ((table, {required orderColumn, required ascending, limit}) async {
@@ -86,13 +85,10 @@ class RewardsRepository {
                 query = query.limit(limit);
               }
               return List<Map<String, dynamic>>.from(await query);
-            }),
-        _currentUserId =
-            currentUserId ?? (() => client.auth.currentUser?.id);
+            });
 
   final RpcCaller _rpc;
   final RewardRowsSelector _selectRows;
-  final String? Function() _currentUserId;
 
   Future<int> ensureRewardAccount() async {
     final result = await _rpc('ensure_reward_account');
@@ -105,40 +101,22 @@ class RewardsRepository {
     return (map['points_balance'] as num).toInt();
   }
 
-  Future<int> demoGrant(int points) async {
-    final result = await _rpc(
-      'demo_reward_grant',
-      params: {'p_points': points},
-    );
-    final map = Map<String, dynamic>.from(result as Map);
-    if (map['success'] != true) {
-      throw RewardsException(map['reason']?.toString() ?? 'grant_failed');
-    }
-    return (map['points_balance'] as num).toInt();
-  }
-
+  /// Points are computed server-side from the payment's own final_amount —
+  /// this never sends a client-supplied point value, and the RPC always
+  /// credits the ride's rider regardless of which participant (rider or
+  /// driver) happens to be the one calling it after settling payment.
   Future<void> earnCompletionReward({
     required String rideId,
     required String paymentId,
-    required int points,
   }) async {
-    final userId = _currentUserId();
-    if (userId == null) {
-      throw const RewardsException('authentication_required');
-    }
     if (rideId.isEmpty || paymentId.isEmpty) {
       throw const RewardsException('invalid_parameters');
-    }
-    if (points <= 0) {
-      throw const RewardsException('points_must_be_positive');
     }
     final result = await _rpc(
       'earn_completion_reward',
       params: {
-        'p_user_id': userId,
         'p_ride_id': rideId,
         'p_payment_id': paymentId,
-        'p_points': points,
       },
     );
     final map = Map<String, dynamic>.from(result as Map);

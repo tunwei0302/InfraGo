@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import 'package:infra_go/foo/payment_repository.dart';
+import 'package:infra_go/tey/rewards_repository.dart';
 import 'package:infra_go/heng/available_orders_screen.dart';
 import 'package:infra_go/heng/driver_inbox_screen.dart';
 import 'package:infra_go/heng/driver_models.dart';
@@ -64,6 +65,7 @@ class _DriverHubTabState extends State<_DriverHubTab> {
   final _repository = DriverRepository(supabase);
   final _presence = DriverPresenceService(supabase);
   final _paymentRepository = PaymentRepository(supabase);
+  final _rewardsRepository = RewardsRepository(supabase);
   late Future<DriverReadiness> _readiness;
   bool _isOnline = false;
   bool _changingOnline = false;
@@ -192,10 +194,26 @@ class _DriverHubTabState extends State<_DriverHubTab> {
   Future<void> _settleRidePayment(String rideId) async {
     try {
       final cash = await _paymentRepository.completeCashPayment(rideId);
-      if (cash['success'] == true) return;
-      await _paymentRepository.captureWalletPayment(rideId);
+      final result = cash['success'] == true
+          ? cash
+          : await _paymentRepository.captureWalletPayment(rideId);
+      final paymentId = result['payment_id']?.toString();
+      if (result['success'] == true && paymentId != null) {
+        await _awardCompletionReward(rideId, paymentId);
+      }
     } catch (_) {
       // Completion remains durable; payment repository is idempotent and retryable.
+    }
+  }
+
+  Future<void> _awardCompletionReward(String rideId, String paymentId) async {
+    try {
+      await _rewardsRepository.earnCompletionReward(
+        rideId: rideId,
+        paymentId: paymentId,
+      );
+    } catch (_) {
+      // Reward earning is best-effort and must never block ride settlement.
     }
   }
 

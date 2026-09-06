@@ -18,7 +18,6 @@ class _RewardsScreenState extends State<RewardsScreen> {
   int? _balance;
   List<RewardTransaction> _history = const [];
   bool _isLoading = true;
-  bool _isGranting = false;
   String? _error;
 
   @override
@@ -49,21 +48,6 @@ class _RewardsScreenState extends State<RewardsScreen> {
         _error = 'Could not load your rewards activity.';
         _isLoading = false;
       });
-    }
-  }
-
-  Future<void> _grantDemoPoints() async {
-    setState(() => _isGranting = true);
-    try {
-      final balance = await _repository.demoGrant(100);
-      if (!mounted) return;
-      setState(() => _balance = balance);
-      unawaited(_load());
-    } catch (error) {
-      if (!mounted) return;
-      setState(() => _error = 'Could not add demo points: $error');
-    } finally {
-      if (mounted) setState(() => _isGranting = false);
     }
   }
 
@@ -140,13 +124,6 @@ class _RewardsScreenState extends State<RewardsScreen> {
                           Text(
                             '100 points = RM1. Redeem up to 20% of a ride\'s fare at checkout.',
                             style: theme.textTheme.bodySmall,
-                          ),
-                          const SizedBox(height: AppSpacing.md),
-                          OutlinedButton(
-                            onPressed: _isGranting ? null : _grantDemoPoints,
-                            child: Text(
-                              _isGranting ? 'Adding…' : 'Add 100 demo points',
-                            ),
                           ),
                         ],
                       ),

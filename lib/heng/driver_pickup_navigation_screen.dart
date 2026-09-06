@@ -7,6 +7,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 
 import 'package:infra_go/foo/payment_repository.dart';
+import 'package:infra_go/tey/rewards_repository.dart';
 import 'package:infra_go/heng/driver_repository.dart';
 import 'package:infra_go/heng/group_navigation_plan.dart';
 import 'package:infra_go/kueh/chat_with_driver_screen.dart';
@@ -60,6 +61,7 @@ class _DriverPickupNavigationScreenState
   final OsrmRoutingService _osrm = OsrmRoutingService();
   final DriverRepository _repository = DriverRepository(supabase);
   final PaymentRepository _paymentRepository = PaymentRepository(supabase);
+  final RewardsRepository _rewardsRepository = RewardsRepository(supabase);
 
   StreamSubscription<Position>? _positionSubscription;
   StreamSubscription<List<Map<String, dynamic>>>? _ridesSubscription;
@@ -739,10 +741,26 @@ class _DriverPickupNavigationScreenState
   Future<void> _settleRidePayment(String rideId) async {
     try {
       final cash = await _paymentRepository.completeCashPayment(rideId);
-      if (cash['success'] == true) return;
-      await _paymentRepository.captureWalletPayment(rideId);
+      final result = cash['success'] == true
+          ? cash
+          : await _paymentRepository.captureWalletPayment(rideId);
+      final paymentId = result['payment_id']?.toString();
+      if (result['success'] == true && paymentId != null) {
+        await _awardCompletionReward(rideId, paymentId);
+      }
     } catch (_) {
       // Completion is durable; the idempotent payment call can be retried.
+    }
+  }
+
+  Future<void> _awardCompletionReward(String rideId, String paymentId) async {
+    try {
+      await _rewardsRepository.earnCompletionReward(
+        rideId: rideId,
+        paymentId: paymentId,
+      );
+    } catch (_) {
+      // Reward earning is best-effort and must never block ride settlement.
     }
   }
 
