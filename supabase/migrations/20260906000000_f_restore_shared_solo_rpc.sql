@@ -69,4 +69,3 @@ $$;
 
 REVOKE ALL ON FUNCTION continue_shared_ride_solo(UUID) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION continue_shared_ride_solo(UUID) TO authenticated;
-

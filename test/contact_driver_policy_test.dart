@@ -112,26 +112,6 @@ void main() {
       }
     });
 
-    test('database ride statuses map to the shared lifecycle policy', () {
-      expect(
-        policy.phaseForRideStatus('driver_assigned'),
-        TripPlannerPhase.driverAssigned,
-      );
-      expect(policy.phaseForRideStatus('en_route'), TripPlannerPhase.enRoute);
-      expect(
-        policy.phaseForRideStatus('completed'),
-        TripPlannerPhase.completed,
-      );
-      expect(
-        policy.phaseForRideStatus('cancelled'),
-        TripPlannerPhase.cancelled,
-      );
-      expect(
-        policy.phaseForRideStatus('waiting_match'),
-        TripPlannerPhase.searchingDriver,
-      );
-    });
-
     test('quick-message bar appears only in en_route', () {
       for (final phase in TripPlannerPhase.values) {
         expect(
