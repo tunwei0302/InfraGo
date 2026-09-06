@@ -1,10 +1,3 @@
--- InfraGo Tey module T3+T4+T6: admin role check, RLS for Heng's review
--- tables, anonymous driver feedback view, and admin moderation of ratings.
--- Owned by Tey; base driver/vehicle tables owned by Heng (H1, H2 migrations).
-
--- ---------------------------------------------------------------------------
--- Helper: current_user_is_admin reads profiles.role
--- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION current_user_is_admin()
 RETURNS BOOLEAN
 LANGUAGE sql
@@ -22,15 +15,6 @@ $$;
 REVOKE ALL ON FUNCTION current_user_is_admin() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION current_user_is_admin() TO authenticated;
 
--- ---------------------------------------------------------------------------
--- T3 Admin Identity Review (Heng's driver_verifications table)
---   driver: read own submission only
---   admin:  read pending queue, approve or reject with reason
---   reviewer cannot approve own submissions (checked in RPC)
---   RLS policies here apply ON TOP OF whatever base RLS Heng already set.
---   We recreate with OR REPLACE semantics using CREATE OR REPLACE is not
---   possible on POLICY, so we DROP IF EXISTS then CREATE.
--- ---------------------------------------------------------------------------
 DO $$ BEGIN
   IF to_regclass('public.driver_verifications') IS NOT NULL THEN
 
@@ -53,13 +37,6 @@ DO $$ BEGIN
   END IF;
 END $$;
 
--- ---------------------------------------------------------------------------
--- T3 Admin Identity Review RPCs
---   approve_driver_verification / reject_driver_verification
---   Sets reviewed_by / reviewed_at / status and enforces "cannot review self"
---   Requires reason on reject. Uses SECURITY DEFINER so RLS update policy is
---   a secondary backstop, not the only gate.
--- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION approve_driver_verification(p_driver_id UUID)
 RETURNS JSONB
 LANGUAGE plpgsql
@@ -137,12 +114,6 @@ REVOKE ALL ON FUNCTION reject_driver_verification(UUID, TEXT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION approve_driver_verification(UUID) TO authenticated;
 GRANT EXECUTE ON FUNCTION reject_driver_verification(UUID, TEXT) TO authenticated;
 
--- ---------------------------------------------------------------------------
--- T4 Admin Vehicle Review (Heng's driver_vehicles table)
---   driver: read/write own submission
---   admin:  approve or reject with reason
---   6-seater gate done inside approve RPC: capacity must be >=6
--- ---------------------------------------------------------------------------
 DO $$ BEGIN
   IF to_regclass('public.driver_vehicles') IS NOT NULL THEN
 
@@ -254,12 +225,6 @@ REVOKE ALL ON FUNCTION reject_driver_vehicle(UUID, TEXT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION approve_driver_vehicle(UUID) TO authenticated;
 GRANT EXECUTE ON FUNCTION reject_driver_vehicle(UUID, TEXT) TO authenticated;
 
--- ---------------------------------------------------------------------------
--- T6 Driver anonymous feedback view
---   Drivers see tags/comment/score only, no rider identity.
---   RLS on base table already prevents direct SELECT by driver.
---   security_barrier prevents predicate pushdown / leaking rider_id.
--- ---------------------------------------------------------------------------
 CREATE OR REPLACE VIEW driver_feedback_anonymous
 WITH (security_barrier = true)
 AS
@@ -275,11 +240,6 @@ ORDER BY created_at DESC;
 
 GRANT SELECT ON driver_feedback_anonymous TO authenticated;
 
--- ---------------------------------------------------------------------------
--- T6 Admin moderation of a single rating record
---   Only admins can soft-remove individual records.
---   Coursework prototype: we delete the row outright (no live-user scale).
--- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION admin_moderate_rating(
   p_rating_id UUID,
   p_action TEXT

@@ -101,8 +101,6 @@ class SdgAnalyticsSnapshot {
   final double prototypeDriverCompensationMYR;
   final List<PaymentAggregate> paymentAggregates;
 
-  /// Null when there is no completed-or-cancelled ride in range yet, so the
-  /// UI can show "N/A" instead of a misleading 0%.
   double? get cancellationRate {
     final denom = cancelledCount + completedCountForCancellation;
     if (denom == 0) return null;
@@ -111,10 +109,13 @@ class SdgAnalyticsSnapshot {
 
   factory SdgAnalyticsSnapshot.fromRpcResult(Map<String, dynamic> json) {
     final sdg = Map<String, dynamic>.from(json['sdg'] as Map? ?? const {});
-    final cancellations =
-        Map<String, dynamic>.from(json['cancellations'] as Map? ?? const {});
-    final capacityRaw = (json['vehicle_capacity_distribution'] as List?) ?? const [];
-    final serviceRaw = (json['service_category_distribution'] as List?) ?? const [];
+    final cancellations = Map<String, dynamic>.from(
+      json['cancellations'] as Map? ?? const {},
+    );
+    final capacityRaw =
+        (json['vehicle_capacity_distribution'] as List?) ?? const [];
+    final serviceRaw =
+        (json['service_category_distribution'] as List?) ?? const [];
     final reasonsRaw = (cancellations['top_reasons'] as List?) ?? const [];
     final paymentsRaw = (json['payments'] as List?) ?? const [];
 
@@ -122,41 +123,52 @@ class SdgAnalyticsSnapshot {
       completedRides: _asInt(sdg['completed_rides']),
       transitLinkedRides: _asInt(sdg['transit_linked_rides']),
       sharedGroupsCompleted: _asInt(sdg['shared_groups_completed']),
-      avgPassengersPerVehicle: _asDoubleOrNull(sdg['avg_passengers_per_vehicle']),
+      avgPassengersPerVehicle: _asDoubleOrNull(
+        sdg['avg_passengers_per_vehicle'],
+      ),
       avgRiderDetourRatio: _asDoubleOrNull(sdg['avg_rider_detour_ratio']),
       estimatedSavingsMYR: _asDouble(sdg['estimated_savings_myr']),
       vehicleKmAvoided: _asDouble(sdg['vehicle_km_avoided']),
       vehicleCapacityDistribution: capacityRaw
-          .map((e) => CapacityCount(
-                _asInt((e as Map)['capacity']),
-                _asInt(e['count']),
-              ))
+          .map(
+            (e) => CapacityCount(
+              _asInt((e as Map)['capacity']),
+              _asInt(e['count']),
+            ),
+          )
           .toList(growable: false),
       serviceCategoryDistribution: serviceRaw
-          .map((e) => ServiceCategoryCount(
-                (e as Map)['service_type'].toString(),
-                _asInt(e['count']),
-              ))
+          .map(
+            (e) => ServiceCategoryCount(
+              (e as Map)['service_type'].toString(),
+              _asInt(e['count']),
+            ),
+          )
           .toList(growable: false),
       cancelledCount: _asInt(cancellations['cancelled_count']),
       completedCountForCancellation: _asInt(cancellations['completed_count']),
       freeCancellationCount: _asInt(cancellations['free_cancellation_count']),
       feeCancellationCount: _asInt(cancellations['fee_cancellation_count']),
       topCancellationReasons: reasonsRaw
-          .map((e) => CancellationReasonCount(
-                (e as Map)['reason'].toString(),
-                _asInt(e['count']),
-              ))
+          .map(
+            (e) => CancellationReasonCount(
+              (e as Map)['reason'].toString(),
+              _asInt(e['count']),
+            ),
+          )
           .toList(growable: false),
-      prototypeDriverCompensationMYR:
-          _asDouble(cancellations['prototype_driver_compensation_myr']),
+      prototypeDriverCompensationMYR: _asDouble(
+        cancellations['prototype_driver_compensation_myr'],
+      ),
       paymentAggregates: paymentsRaw
-          .map((e) => PaymentAggregate(
-                method: (e as Map)['method'].toString(),
-                status: e['status'].toString(),
-                count: _asInt(e['count']),
-                totalMYR: _asDouble(e['total_myr']),
-              ))
+          .map(
+            (e) => PaymentAggregate(
+              method: (e as Map)['method'].toString(),
+              status: e['status'].toString(),
+              count: _asInt(e['count']),
+              totalMYR: _asDouble(e['total_myr']),
+            ),
+          )
           .toList(growable: false),
     );
   }
@@ -164,7 +176,7 @@ class SdgAnalyticsSnapshot {
 
 class SdgAnalyticsRepository {
   SdgAnalyticsRepository(SupabaseClient client, {RpcCaller? rpcCaller})
-      : _rpc = rpcCaller ?? client.rpc;
+    : _rpc = rpcCaller ?? client.rpc;
 
   final RpcCaller _rpc;
 

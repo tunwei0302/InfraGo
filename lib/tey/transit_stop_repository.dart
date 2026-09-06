@@ -177,21 +177,16 @@ class FakeTransitStopRepository implements TransitStopRepository {
   }
 }
 
-// ---------------------------------------------------------------------------
-// T2 GTFS Static downloader + parser + cache for Malaysia data.gov.my
-// ---------------------------------------------------------------------------
-
 const String kDefaultGtfsStaticSource =
     'https://data.gov.my/gtfs/static/prasarana/stops.txt';
 const Duration kGtfsStaleThreshold = Duration(hours: 6);
 const String kDefaultSourceLabel = 'data.gov.my GTFS Static';
 
 typedef GtfsHttpDownloader = Future<String> Function(Uri url);
-typedef GtfsCacheLoader = Future<({String csv, DateTime fetchedAt})?> Function();
-typedef GtfsCacheSaver = Future<void> Function({
-  required String csv,
-  required DateTime fetchedAt,
-});
+typedef GtfsCacheLoader =
+    Future<({String csv, DateTime fetchedAt})?> Function();
+typedef GtfsCacheSaver =
+    Future<void> Function({required String csv, required DateTime fetchedAt});
 
 Future<String> defaultGtfsHttpDownloader(Uri url) async {
   final response = await http.get(url);
@@ -239,15 +234,21 @@ List<TransitStop> parseGtfsStopsCsv(
   DateTime? fetchedAt,
   void Function(int line, String reason)? onMalformed,
 }) {
-  final lines = LineSplitter.split(csv).where((l) => l.trim().isNotEmpty).toList();
+  final lines = LineSplitter.split(
+    csv,
+  ).where((l) => l.trim().isNotEmpty).toList();
   if (lines.length < 2) return const [];
 
   final header = parseCsvLine(lines.first);
   final idCol = header.indexWhere((h) => h.trim().toLowerCase() == 'stop_id');
-  final nameCol = header.indexWhere((h) => h.trim().toLowerCase() == 'stop_name');
+  final nameCol = header.indexWhere(
+    (h) => h.trim().toLowerCase() == 'stop_name',
+  );
   final latCol = header.indexWhere((h) => h.trim().toLowerCase() == 'stop_lat');
   final lonCol = header.indexWhere((h) => h.trim().toLowerCase() == 'stop_lon');
-  final codeCol = header.indexWhere((h) => h.trim().toLowerCase() == 'stop_code');
+  final codeCol = header.indexWhere(
+    (h) => h.trim().toLowerCase() == 'stop_code',
+  );
 
   if (idCol < 0 || nameCol < 0 || latCol < 0 || lonCol < 0) {
     throw const TransitRepositoryException(
@@ -260,7 +261,8 @@ List<TransitStop> parseGtfsStopsCsv(
   for (var i = 1; i < lines.length; i++) {
     final lineNumber = i + 1;
     final cells = parseCsvLine(lines[i]);
-    String getC(int col) => col >= 0 && col < cells.length ? cells[col].trim() : '';
+    String getC(int col) =>
+        col >= 0 && col < cells.length ? cells[col].trim() : '';
     final id = getC(idCol);
     final name = getC(nameCol);
     final latRaw = getC(latCol);
@@ -286,14 +288,16 @@ List<TransitStop> parseGtfsStopsCsv(
       continue;
     }
     seenIds.add(id);
-    out.add(TransitStopValue(
-      id: id,
-      name: name,
-      location: LatLng(lat, lon),
-      code: code.isEmpty ? null : code,
-      source: source,
-      lastUpdated: fetchedAt,
-    ));
+    out.add(
+      TransitStopValue(
+        id: id,
+        name: name,
+        location: LatLng(lat, lon),
+        code: code.isEmpty ? null : code,
+        source: source,
+        lastUpdated: fetchedAt,
+      ),
+    );
   }
   return List.unmodifiable(out);
 }
@@ -323,9 +327,7 @@ class GtfsStaticStopRepository implements TransitStopRepository {
 
   bool get hasCachedStops => _memoryCache?.isNotEmpty ?? false;
 
-  Future<TransitRepositoryResult> loadData({
-    bool forceRefresh = false,
-  }) async {
+  Future<TransitRepositoryResult> loadData({bool forceRefresh = false}) async {
     final lock = _refreshLock;
     if (lock != null && !lock.isCompleted) {
       return lock.future;
@@ -364,7 +366,9 @@ class GtfsStaticStopRepository implements TransitStopRepository {
     if (!forceRefresh &&
         persistent != null &&
         (cached == null ||
-            persistent.fetchedAt.isAfter(cachedAt ?? DateTime.fromMillisecondsSinceEpoch(0)))) {
+            persistent.fetchedAt.isAfter(
+              cachedAt ?? DateTime.fromMillisecondsSinceEpoch(0),
+            ))) {
       final parsed = parseGtfsStopsCsv(
         persistent.csv,
         source: sourceLabel,
@@ -375,7 +379,9 @@ class GtfsStaticStopRepository implements TransitStopRepository {
       _memoryCacheFetchedAt = persistent.fetchedAt;
       final age = now.difference(persistent.fetchedAt);
       return TransitRepositoryResult(
-        status: age > staleThreshold ? TransitDataStatus.stale : TransitDataStatus.fresh,
+        status: age > staleThreshold
+            ? TransitDataStatus.stale
+            : TransitDataStatus.fresh,
         stops: parsed,
         source: sourceLabel,
         datasetTimestamp: persistent.fetchedAt,
@@ -409,11 +415,11 @@ class GtfsStaticStopRepository implements TransitStopRepository {
     _memoryCacheFetchedAt = fetchedAt;
     try {
       await cacheSaver?.call(csv: csv, fetchedAt: fetchedAt);
-    } catch (_) {
-      // Persistence cache is best-effort; keep the in-memory result.
-    }
+    } catch (_) {}
     return TransitRepositoryResult(
-      status: parsed.isEmpty ? TransitDataStatus.empty : TransitDataStatus.fresh,
+      status: parsed.isEmpty
+          ? TransitDataStatus.empty
+          : TransitDataStatus.fresh,
       stops: parsed,
       source: sourceLabel,
       datasetTimestamp: fetchedAt,

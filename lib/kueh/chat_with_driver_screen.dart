@@ -19,12 +19,8 @@ class ChatWithDriverScreen extends StatefulWidget {
   final String? rideId;
   final String title;
 
-  /// Optional one-tap messages rendered above the composer (used by the
-  /// driver inbox; riders keep the plain composer).
   final List<String> quickReplies;
 
-  /// This page is only opened for a particular assigned ride.  The driver
-  /// view changes the contact wording and enables driver status shortcuts.
   final bool isDriverView;
 
   @override
@@ -90,9 +86,7 @@ class _ChatWithDriverScreenState extends State<ChatWithDriverScreen> {
               )
               .eq('driver_id', ride!.driverId!)
               .maybeSingle();
-        } catch (_) {
-          // Chat remains available even when the optional public header fails.
-        }
+        } catch (_) {}
       }
 
       if (!mounted) {

@@ -63,8 +63,6 @@ enum AnalyticsDateRange {
   }
 }
 
-// Dataset ids verified against https://developer.data.gov.my (the earlier
-// ids here did not exist on the live API and always returned HTTP 404).
 const String kVehicleRegSource =
     'https://api.data.gov.my/data-catalogue?id=registrations_type_fuel'
     '&filter=petrol@fuel,car@type&sort=-date&limit=12';
@@ -81,8 +79,8 @@ class OpenDataService {
   OpenDataService({
     OpenDataHttpGetter? httpGet,
     Duration staleThreshold = const Duration(hours: 24),
-  })  : _httpGet = httpGet ?? http.get,
-        _staleThreshold = staleThreshold;
+  }) : _httpGet = httpGet ?? http.get,
+       _staleThreshold = staleThreshold;
 
   final OpenDataHttpGetter _httpGet;
   final Duration _staleThreshold;
@@ -102,8 +100,10 @@ class OpenDataService {
   OpenDataStatus get overallStatus {
     final fetched = [_vehicleFetchTime, _ridershipFetchTime, _fuelFetchTime];
     final anyLoading = fetched.any((t) => t == null);
-    final hasError = _vehicleError != null || _ridershipError != null || _fuelError != null;
-    final anyData = _vehiclePetrolSeries?.isNotEmpty == true ||
+    final hasError =
+        _vehicleError != null || _ridershipError != null || _fuelError != null;
+    final anyData =
+        _vehiclePetrolSeries?.isNotEmpty == true ||
         _lrtSeries?.isNotEmpty == true ||
         _fuelSnapshot != null;
     if (anyLoading) {
@@ -116,9 +116,9 @@ class OpenDataService {
       return OpenDataStatus.partial;
     }
     final now = DateTime.now();
-    final anyStale = fetched
-        .whereType<DateTime>()
-        .any((t) => now.difference(t) > _staleThreshold);
+    final anyStale = fetched.whereType<DateTime>().any(
+      (t) => now.difference(t) > _staleThreshold,
+    );
     return anyStale ? OpenDataStatus.stale : OpenDataStatus.fresh;
   }
 
@@ -169,7 +169,7 @@ class OpenDataService {
       for (final row in body) {
         final map = row as Map<String, dynamic>;
         final rawDate = map['date']?.toString();
-        // rail_lrt_kj = LRT Kelana Jaya line, a Prasarana-operated line.
+
         final count = (map['rail_lrt_kj'] as num?)?.toDouble();
         if (rawDate == null || count == null) continue;
         final date = DateTime.tryParse(rawDate);
@@ -197,7 +197,7 @@ class OpenDataService {
         _fuelError = 'empty_response';
         return;
       }
-      // Server returns newest-first (sort=-date), so the first row is latest.
+
       final latest = body.first as Map<String, dynamic>;
       final rawDate = latest['date']?.toString() ?? '';
       final date = DateTime.tryParse(rawDate) ?? DateTime.now();
@@ -224,8 +224,8 @@ class AnalyticsScreen extends StatefulWidget {
     super.key,
     OpenDataService? service,
     SdgAnalyticsRepository? sdgRepository,
-  })  : _service = service,
-        _sdgRepository = sdgRepository;
+  }) : _service = service,
+       _sdgRepository = sdgRepository;
 
   final OpenDataService? _service;
   final SdgAnalyticsRepository? _sdgRepository;
@@ -363,41 +363,41 @@ class _StatusBanner extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final (label, icon, bg, fg) = switch (status) {
       OpenDataStatus.loading => (
-          'Loading official data…',
-          Icons.cloud_sync_outlined,
-          scheme.surfaceContainerHighest,
-          scheme.onSurfaceVariant,
-        ),
+        'Loading official data…',
+        Icons.cloud_sync_outlined,
+        scheme.surfaceContainerHighest,
+        scheme.onSurfaceVariant,
+      ),
       OpenDataStatus.fresh => (
-          'Official data LIVE',
-          Icons.check_circle_outline,
-          scheme.primaryContainer,
-          scheme.onPrimaryContainer,
-        ),
+        'Official data LIVE',
+        Icons.check_circle_outline,
+        scheme.primaryContainer,
+        scheme.onPrimaryContainer,
+      ),
       OpenDataStatus.stale => (
-          'Showing cached data (stale)',
-          Icons.history_outlined,
-          scheme.secondaryContainer,
-          scheme.onSecondaryContainer,
-        ),
+        'Showing cached data (stale)',
+        Icons.history_outlined,
+        scheme.secondaryContainer,
+        scheme.onSecondaryContainer,
+      ),
       OpenDataStatus.partial => (
-          'Some official sources failed; showing available data',
-          Icons.warning_amber_outlined,
-          scheme.tertiaryContainer,
-          scheme.onTertiaryContainer,
-        ),
+        'Some official sources failed; showing available data',
+        Icons.warning_amber_outlined,
+        scheme.tertiaryContainer,
+        scheme.onTertiaryContainer,
+      ),
       OpenDataStatus.empty => (
-          'No data available yet',
-          Icons.inbox_outlined,
-          scheme.surfaceContainerHighest,
-          scheme.onSurfaceVariant,
-        ),
+        'No data available yet',
+        Icons.inbox_outlined,
+        scheme.surfaceContainerHighest,
+        scheme.onSurfaceVariant,
+      ),
       OpenDataStatus.error => (
-          'Could not load official data',
-          Icons.error_outline,
-          scheme.errorContainer,
-          scheme.onErrorContainer,
-        ),
+        'Could not load official data',
+        Icons.error_outline,
+        scheme.errorContainer,
+        scheme.onErrorContainer,
+      ),
     };
     return Card(
       color: bg,
@@ -410,10 +410,7 @@ class _StatusBanner extends StatelessWidget {
             Expanded(
               child: Text(
                 label,
-                style: TextStyle(
-                  color: fg,
-                  fontWeight: FontWeight.bold,
-                ),
+                style: TextStyle(color: fg, fontWeight: FontWeight.bold),
               ),
             ),
           ],
@@ -445,8 +442,10 @@ class _OfficialGovernmentDataSection extends StatelessWidget {
           children: [
             Icon(Icons.account_balance_outlined, color: scheme.primary),
             const SizedBox(width: AppSpacing.xs),
-            Text('Official Government Data',
-                style: AppTextStyles.sectionHeader),
+            Text(
+              'Official Government Data',
+              style: AppTextStyles.sectionHeader,
+            ),
           ],
         ),
         const SizedBox(height: AppSpacing.xs),
@@ -515,18 +514,39 @@ class _FuelPriceCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Weekly Fuel Prices (MOF)',
-                style: theme.textTheme.titleMedium),
+            Text(
+              'Weekly Fuel Prices (MOF)',
+              style: theme.textTheme.titleMedium,
+            ),
             const SizedBox(height: AppSpacing.xs),
-            _SourceBadge(source: kFuelPriceSource, fetchedAt: fetchedAt, formatDate: formatDate, scheme: scheme, theme: theme, snapshot: snapshot),
+            _SourceBadge(
+              source: kFuelPriceSource,
+              fetchedAt: fetchedAt,
+              formatDate: formatDate,
+              scheme: scheme,
+              theme: theme,
+              snapshot: snapshot,
+            ),
             const SizedBox(height: AppSpacing.md),
             if (snapshot != null)
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceAround,
                 children: [
-                  _PriceTile(label: 'RON95', value: snapshot.ron95, scheme: scheme),
-                  _PriceTile(label: 'RON97', value: snapshot.ron97, scheme: scheme),
-                  _PriceTile(label: 'Diesel', value: snapshot.diesel, scheme: scheme),
+                  _PriceTile(
+                    label: 'RON95',
+                    value: snapshot.ron95,
+                    scheme: scheme,
+                  ),
+                  _PriceTile(
+                    label: 'RON97',
+                    value: snapshot.ron97,
+                    scheme: scheme,
+                  ),
+                  _PriceTile(
+                    label: 'Diesel',
+                    value: snapshot.diesel,
+                    scheme: scheme,
+                  ),
                 ],
               )
             else if (error != null)
@@ -544,7 +564,11 @@ class _FuelPriceCard extends StatelessWidget {
 }
 
 class _PriceTile extends StatelessWidget {
-  const _PriceTile({required this.label, required this.value, required this.scheme});
+  const _PriceTile({
+    required this.label,
+    required this.value,
+    required this.scheme,
+  });
   final String label;
   final double value;
   final ColorScheme scheme;
@@ -583,7 +607,8 @@ class _SourceBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final stale = fetchedAt != null &&
+    final stale =
+        fetchedAt != null &&
         DateTime.now().difference(fetchedAt!) > const Duration(hours: 24);
     return Wrap(
       spacing: AppSpacing.xs,
@@ -591,11 +616,11 @@ class _SourceBadge extends StatelessWidget {
       children: [
         Container(
           padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.sm, vertical: 2),
+            horizontal: AppSpacing.sm,
+            vertical: 2,
+          ),
           decoration: BoxDecoration(
-            color: stale
-                ? scheme.secondaryContainer
-                : scheme.primaryContainer,
+            color: stale ? scheme.secondaryContainer : scheme.primaryContainer,
             borderRadius: BorderRadius.circular(12),
           ),
           child: Text(
@@ -645,7 +670,8 @@ class _SimpleSeriesCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final stale = fetchedAt != null &&
+    final stale =
+        fetchedAt != null &&
         DateTime.now().difference(fetchedAt!) > const Duration(hours: 24);
     return Card(
       child: Padding(
@@ -661,34 +687,38 @@ class _SimpleSeriesCard extends StatelessWidget {
               children: [
                 Container(
                   padding: const EdgeInsets.symmetric(
-                      horizontal: AppSpacing.sm, vertical: 2),
+                    horizontal: AppSpacing.sm,
+                    vertical: 2,
+                  ),
                   decoration: BoxDecoration(
                     color: error != null
                         ? scheme.errorContainer
                         : stale
-                            ? scheme.secondaryContainer
-                            : scheme.primaryContainer,
+                        ? scheme.secondaryContainer
+                        : scheme.primaryContainer,
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text(
                     error != null
                         ? 'ERROR'
                         : stale
-                            ? 'CACHED (stale)'
-                            : 'LIVE',
+                        ? 'CACHED (stale)'
+                        : 'LIVE',
                     style: TextStyle(
                       color: error != null
                           ? scheme.onErrorContainer
                           : stale
-                              ? scheme.onSecondaryContainer
-                              : scheme.onPrimaryContainer,
+                          ? scheme.onSecondaryContainer
+                          : scheme.onPrimaryContainer,
                       fontSize: 11,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
                 ),
                 Text(
-                  fetchedAt == null ? 'Fetching…' : 'Fetched ${formatDate(fetchedAt!)}',
+                  fetchedAt == null
+                      ? 'Fetching…'
+                      : 'Fetched ${formatDate(fetchedAt!)}',
                   style: theme.textTheme.bodySmall,
                 ),
               ],
@@ -723,9 +753,7 @@ class _MiniBarChart extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (points.isEmpty) return const SizedBox.shrink();
-    final max = points
-        .map((e) => e.$2)
-        .reduce((a, b) => a > b ? a : b);
+    final max = points.map((e) => e.$2).reduce((a, b) => a > b ? a : b);
     const maxBarHeight = 64.0;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -743,7 +771,8 @@ class _MiniBarChart extends StatelessWidget {
                   decoration: BoxDecoration(
                     color: Theme.of(context).colorScheme.primary,
                     borderRadius: const BorderRadius.vertical(
-                        top: Radius.circular(4)),
+                      top: Radius.circular(4),
+                    ),
                   ),
                 ),
               );
@@ -802,8 +831,10 @@ class _InfraGoPrototypeMetricsSection extends StatelessWidget {
             Icon(Icons.science_outlined, color: scheme.tertiary),
             const SizedBox(width: AppSpacing.xs),
             Expanded(
-              child: Text('InfraGo Prototype Metrics',
-                  style: AppTextStyles.sectionHeader),
+              child: Text(
+                'InfraGo Prototype Metrics',
+                style: AppTextStyles.sectionHeader,
+              ),
             ),
           ],
         ),
@@ -812,10 +843,7 @@ class _InfraGoPrototypeMetricsSection extends StatelessWidget {
           'These are coursework prototype estimates computed live from '
           'InfraGo ride, group and payment records. They are NOT official '
           'government statistics.',
-          style: TextStyle(
-            color: scheme.tertiary,
-            fontStyle: FontStyle.italic,
-          ),
+          style: TextStyle(color: scheme.tertiary, fontStyle: FontStyle.italic),
         ),
         const SizedBox(height: AppSpacing.sm),
         Wrap(
@@ -830,10 +858,12 @@ class _InfraGoPrototypeMetricsSection extends StatelessWidget {
         ),
         const SizedBox(height: AppSpacing.md),
         if (loading && m == null)
-          const Center(child: Padding(
-            padding: EdgeInsets.all(AppSpacing.lg),
-            child: CircularProgressIndicator(),
-          ))
+          const Center(
+            child: Padding(
+              padding: EdgeInsets.all(AppSpacing.lg),
+              child: CircularProgressIndicator(),
+            ),
+          )
         else if (error != null && m == null)
           Card(
             color: scheme.errorContainer,
@@ -847,13 +877,21 @@ class _InfraGoPrototypeMetricsSection extends StatelessWidget {
                     style: TextStyle(color: scheme.onErrorContainer),
                   ),
                   const SizedBox(height: AppSpacing.sm),
-                  ElevatedButton(onPressed: onRetry, child: const Text('Retry')),
+                  ElevatedButton(
+                    onPressed: onRetry,
+                    child: const Text('Retry'),
+                  ),
                 ],
               ),
             ),
           )
         else if (m != null)
-          _MetricsBody(scheme: scheme, m: m, pctOrNA: _pctOrNA, numOrNA: _numOrNA),
+          _MetricsBody(
+            scheme: scheme,
+            m: m,
+            pctOrNA: _pctOrNA,
+            numOrNA: _numOrNA,
+          ),
       ],
     );
   }
@@ -887,12 +925,15 @@ class _MetricsBody extends StatelessWidget {
               children: [
                 _MetricRow('Completed rides', '${m.completedRides}'),
                 _MetricRow('Shared groups', '${m.sharedGroupsCompleted}'),
+                _MetricRow('Transit-linked rides', '${m.transitLinkedRides}'),
                 _MetricRow(
-                    'Transit-linked rides', '${m.transitLinkedRides}'),
-                _MetricRow('Vehicle-km avoided',
-                    '${m.vehicleKmAvoided.toStringAsFixed(1)} km'),
-                _MetricRow('Estimated user savings',
-                    'RM${m.estimatedSavingsMYR.toStringAsFixed(2)}'),
+                  'Vehicle-km avoided',
+                  '${m.vehicleKmAvoided.toStringAsFixed(1)} km',
+                ),
+                _MetricRow(
+                  'Estimated user savings',
+                  'RM${m.estimatedSavingsMYR.toStringAsFixed(2)}',
+                ),
               ],
             ),
             _MetricCard(
@@ -903,10 +944,7 @@ class _MetricsBody extends StatelessWidget {
                   'Avg passengers / vehicle',
                   numOrNA(m.avgPassengersPerVehicle),
                 ),
-                _MetricRow(
-                  'Avg rider detour',
-                  pctOrNA(m.avgRiderDetourRatio),
-                ),
+                _MetricRow('Avg rider detour', pctOrNA(m.avgRiderDetourRatio)),
               ],
             ),
             _MetricCard(
@@ -916,8 +954,10 @@ class _MetricsBody extends StatelessWidget {
                 _MetricRow('Overall rate', pctOrNA(m.cancellationRate)),
                 _MetricRow('Free cancelled', '${m.freeCancellationCount}'),
                 _MetricRow('Fee cancelled', '${m.feeCancellationCount}'),
-                _MetricRow('Prototype driver compensation',
-                    'RM${m.prototypeDriverCompensationMYR.toStringAsFixed(2)}'),
+                _MetricRow(
+                  'Prototype driver compensation',
+                  'RM${m.prototypeDriverCompensationMYR.toStringAsFixed(2)}',
+                ),
               ],
             ),
           ],
@@ -933,9 +973,11 @@ class _MetricsBody extends StatelessWidget {
               children: m.vehicleCapacityDistribution.isEmpty
                   ? const [Text('No approved vehicles yet.')]
                   : m.vehicleCapacityDistribution
-                      .map((c) => _MetricRow(
-                          '${c.capacity}-seater', '${c.count}'))
-                      .toList(),
+                        .map(
+                          (c) =>
+                              _MetricRow('${c.capacity}-seater', '${c.count}'),
+                        )
+                        .toList(),
             ),
             _MetricCard(
               title: 'Service Category Distribution',
@@ -943,8 +985,8 @@ class _MetricsBody extends StatelessWidget {
               children: m.serviceCategoryDistribution.isEmpty
                   ? const [Text('No completed rides in this range yet.')]
                   : m.serviceCategoryDistribution
-                      .map((s) => _MetricRow(s.serviceType, '${s.count}'))
-                      .toList(),
+                        .map((s) => _MetricRow(s.serviceType, '${s.count}'))
+                        .toList(),
             ),
             _MetricCard(
               title: 'Top Cancellation Reasons',
@@ -952,8 +994,8 @@ class _MetricsBody extends StatelessWidget {
               children: m.topCancellationReasons.isEmpty
                   ? const [Text('No cancellation reasons recorded yet.')]
                   : m.topCancellationReasons
-                      .map((r) => _MetricRow(r.reason, '${r.count}'))
-                      .toList(),
+                        .map((r) => _MetricRow(r.reason, '${r.count}'))
+                        .toList(),
             ),
           ],
         ),
@@ -964,10 +1006,13 @@ class _MetricsBody extends StatelessWidget {
           children: m.paymentAggregates.isEmpty
               ? const [Text('No payments recorded in this range yet.')]
               : m.paymentAggregates
-                  .map((p) => _MetricRow(
-                      '${p.method} · ${p.status} (${p.count})',
-                      'RM${p.totalMYR.toStringAsFixed(2)}'))
-                  .toList(),
+                    .map(
+                      (p) => _MetricRow(
+                        '${p.method} · ${p.status} (${p.count})',
+                        'RM${p.totalMYR.toStringAsFixed(2)}',
+                      ),
+                    )
+                    .toList(),
         ),
       ],
     );
@@ -1019,11 +1064,14 @@ class _MetricRow extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Expanded(
-              child: Text(label, style: Theme.of(context).textTheme.bodySmall)),
+            child: Text(label, style: Theme.of(context).textTheme.bodySmall),
+          ),
           const SizedBox(width: AppSpacing.sm),
-          Text(value,
-              style: const TextStyle(fontWeight: FontWeight.bold),
-              textAlign: TextAlign.right),
+          Text(
+            value,
+            style: const TextStyle(fontWeight: FontWeight.bold),
+            textAlign: TextAlign.right,
+          ),
         ],
       ),
     );

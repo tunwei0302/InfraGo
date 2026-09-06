@@ -1,9 +1,3 @@
--- InfraGo Tey module: reward points balance and immutable ledger.
--- Built now so Foo's payment RPCs (20260829000000_f_payments_wallet.sql) can
--- reserve and deduct reward points atomically with a ride's payment (F7).
--- Prototype rate: 100 points = RM1. Apply only after reviewing it with the
--- team; ownership of this module belongs to Tey.
-
 CREATE TABLE IF NOT EXISTS reward_accounts (
   user_id UUID PRIMARY KEY,
   points_balance INTEGER NOT NULL DEFAULT 0 CHECK (points_balance >= 0),
@@ -44,9 +38,6 @@ BEGIN
 END;
 $$;
 
--- Coursework-only fake grant so reward redemption is testable without a
--- real earn-by-riding system. Never expose an equivalent that mints real
--- value.
 CREATE OR REPLACE FUNCTION demo_reward_grant(p_points INTEGER)
 RETURNS JSONB
 LANGUAGE plpgsql
@@ -80,11 +71,6 @@ BEGIN
 END;
 $$;
 
--- Internal: atomically debits points from a rider's reward balance and
--- writes the ledger entry. Callers (Foo's create_ride_with_quote_and_payment)
--- are expected to have already validated the 20%-of-fare cap and checked the
--- balance; the balance check here is a defensive backstop against a
--- concurrent redemption racing the same account.
 CREATE OR REPLACE FUNCTION redeem_reward_points(
   p_user_id UUID,
   p_points INTEGER,
@@ -114,9 +100,6 @@ BEGIN
 END;
 $$;
 
--- Internal: credits points back after a refund/cancellation. Called from
--- Foo's cancel_ride_and_settle_payment in the same transaction as the fee
--- and refund, so the restore is atomic with the cancellation.
 CREATE OR REPLACE FUNCTION restore_reward_points(
   p_user_id UUID,
   p_points INTEGER,

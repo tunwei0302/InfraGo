@@ -3,10 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:infra_go/shared/app_theme.dart';
 import 'package:infra_go/weather/route_weather_service.dart';
 
-/// Non-blocking rain/wind advisory shown on the pickup-confirmation sheet.
-/// Renders nothing when there is no advisory (still loading, fetch failed,
-/// or no risk above [RouteRiskLevel.none]) so a flaky weather call never
-/// clutters or blocks pickup confirmation.
 class WeatherAdvisoryBanner extends StatelessWidget {
   const WeatherAdvisoryBanner({super.key, this.advisory});
 
@@ -19,7 +15,9 @@ class WeatherAdvisoryBanner extends StatelessWidget {
 
     final scheme = Theme.of(context).colorScheme;
     final isHigh = leg.risk == RouteRiskLevel.high;
-    final background = isHigh ? scheme.errorContainer : scheme.tertiaryContainer;
+    final background = isHigh
+        ? scheme.errorContainer
+        : scheme.tertiaryContainer;
     final foreground = isHigh
         ? scheme.onErrorContainer
         : scheme.onTertiaryContainer;

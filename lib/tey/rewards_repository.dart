@@ -62,30 +62,32 @@ class RewardTransaction {
   final String? paymentId;
 }
 
-typedef RewardRowsSelector = Future<List<Map<String, dynamic>>> Function(
-  String table, {
-  required String orderColumn,
-  required bool ascending,
-  int? limit,
-});
+typedef RewardRowsSelector =
+    Future<List<Map<String, dynamic>>> Function(
+      String table, {
+      required String orderColumn,
+      required bool ascending,
+      int? limit,
+    });
 
 class RewardsRepository {
   RewardsRepository(
     SupabaseClient client, {
     RpcCaller? rpcCaller,
     RewardRowsSelector? selectRows,
-  })  : _rpc = rpcCaller ?? client.rpc,
-        _selectRows = selectRows ??
-            ((table, {required orderColumn, required ascending, limit}) async {
-              dynamic query = client
-                  .from(table)
-                  .select()
-                  .order(orderColumn, ascending: ascending);
-              if (limit != null) {
-                query = query.limit(limit);
-              }
-              return List<Map<String, dynamic>>.from(await query);
-            });
+  }) : _rpc = rpcCaller ?? client.rpc,
+       _selectRows =
+           selectRows ??
+           ((table, {required orderColumn, required ascending, limit}) async {
+             dynamic query = client
+                 .from(table)
+                 .select()
+                 .order(orderColumn, ascending: ascending);
+             if (limit != null) {
+               query = query.limit(limit);
+             }
+             return List<Map<String, dynamic>>.from(await query);
+           });
 
   final RpcCaller _rpc;
   final RewardRowsSelector _selectRows;
@@ -101,10 +103,6 @@ class RewardsRepository {
     return (map['points_balance'] as num).toInt();
   }
 
-  /// Points are computed server-side from the payment's own final_amount —
-  /// this never sends a client-supplied point value, and the RPC always
-  /// credits the ride's rider regardless of which participant (rider or
-  /// driver) happens to be the one calling it after settling payment.
   Future<void> earnCompletionReward({
     required String rideId,
     required String paymentId,
@@ -114,16 +112,11 @@ class RewardsRepository {
     }
     final result = await _rpc(
       'earn_completion_reward',
-      params: {
-        'p_ride_id': rideId,
-        'p_payment_id': paymentId,
-      },
+      params: {'p_ride_id': rideId, 'p_payment_id': paymentId},
     );
     final map = Map<String, dynamic>.from(result as Map);
     if (map['success'] != true) {
-      throw RewardsException(
-        map['reason']?.toString() ?? 'earn_failed',
-      );
+      throw RewardsException(map['reason']?.toString() ?? 'earn_failed');
     }
   }
 
@@ -175,7 +168,9 @@ class RewardsRepository {
     }
   }
 
-  Future<List<RewardTransaction>> fetchTransactionHistory({int limit = 50}) async {
+  Future<List<RewardTransaction>> fetchTransactionHistory({
+    int limit = 50,
+  }) async {
     final rows = await _selectRows(
       'reward_transactions',
       orderColumn: 'created_at',

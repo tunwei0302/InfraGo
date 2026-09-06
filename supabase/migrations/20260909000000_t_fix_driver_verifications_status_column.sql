@@ -1,13 +1,3 @@
--- InfraGo Tey module: fix wrong column name in the T3 identity review RPCs.
---
--- driver_verifications (created in 20260902000000_h_driver_operations.sql)
--- has an `approval_status` column, not `status`. approve_driver_verification
--- and reject_driver_verification (20260904000000_t_admin_policies_rating_
--- anon.sql) were written against a `status` column that never existed,
--- so both RPCs fail at runtime with "column driver_verifications.status
--- does not exist" - the entire T3 identity approve/reject flow was broken.
--- (lib/tey/admin_review_repository.dart's fetchPendingIdentities() has the
--- same mistake and is fixed alongside this migration.)
 CREATE OR REPLACE FUNCTION approve_driver_verification(p_driver_id UUID)
 RETURNS JSONB
 LANGUAGE plpgsql

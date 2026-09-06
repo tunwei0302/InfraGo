@@ -2,17 +2,17 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 typedef DriverRatingInserter = Future<void> Function(Map<String, dynamic> row);
 
-typedef DriverRatingSelector = Future<List<Map<String, dynamic>>> Function(
-  String from, {
-  Map<String, dynamic>? eq,
-  String? orderColumn,
-  bool ascending,
-  int? limit,
-});
+typedef DriverRatingSelector =
+    Future<List<Map<String, dynamic>>> Function(
+      String from, {
+      Map<String, dynamic>? eq,
+      String? orderColumn,
+      bool ascending,
+      int? limit,
+    });
 
-typedef DriverRatingSummarySelector = Future<Map<String, dynamic>?> Function(
-  String driverId,
-);
+typedef DriverRatingSummarySelector =
+    Future<Map<String, dynamic>?> Function(String driverId);
 
 class DriverRatingException implements Exception {
   const DriverRatingException(this.message);
@@ -101,32 +101,34 @@ class DriverRatingRepository {
     String? Function()? currentUserId,
     DriverRatingSelector? selectRows,
     DriverRatingSummarySelector? selectSummary,
-  })  : _currentUserId = currentUserId ?? (() => client.auth.currentUser?.id),
-        _insert = insert ?? ((row) => client.from('driver_ratings').insert(row)),
-        _selectRows = selectRows ??
-            ((from, {eq, orderColumn, ascending = true, limit}) async {
-              dynamic query = client.from(from).select();
-              if (eq != null) {
-                eq.forEach((key, value) => query = query.eq(key, value));
-              }
-              if (orderColumn != null) {
-                query = query.order(orderColumn, ascending: ascending);
-              }
-              if (limit != null) {
-                query = query.limit(limit);
-              }
-              final rows = await query;
-              return List<Map<String, dynamic>>.from(rows);
-            }),
-        _selectSummary = selectSummary ??
-            ((driverId) async {
-              final rows = await client
-                  .from('driver_rating_summary')
-                  .select()
-                  .eq('driver_id', driverId);
-              final list = List<Map<String, dynamic>>.from(rows);
-              return list.isEmpty ? null : list.first;
-            });
+  }) : _currentUserId = currentUserId ?? (() => client.auth.currentUser?.id),
+       _insert = insert ?? ((row) => client.from('driver_ratings').insert(row)),
+       _selectRows =
+           selectRows ??
+           ((from, {eq, orderColumn, ascending = true, limit}) async {
+             dynamic query = client.from(from).select();
+             if (eq != null) {
+               eq.forEach((key, value) => query = query.eq(key, value));
+             }
+             if (orderColumn != null) {
+               query = query.order(orderColumn, ascending: ascending);
+             }
+             if (limit != null) {
+               query = query.limit(limit);
+             }
+             final rows = await query;
+             return List<Map<String, dynamic>>.from(rows);
+           }),
+       _selectSummary =
+           selectSummary ??
+           ((driverId) async {
+             final rows = await client
+                 .from('driver_rating_summary')
+                 .select()
+                 .eq('driver_id', driverId);
+             final list = List<Map<String, dynamic>>.from(rows);
+             return list.isEmpty ? null : list.first;
+           });
 
   final String? Function() _currentUserId;
   final DriverRatingInserter _insert;
@@ -231,10 +233,9 @@ class DriverRatingRepository {
     }
     final total = s1 + s2 + s3 + s4 + s5;
     final lowRate = total == 0 ? 0.0 : (s1 + s2) / total;
-    final freqTags = tagCount.entries
-        .map((e) => TagFrequency(e.key, e.value))
-        .toList()
-      ..sort((a, b) => b.count.compareTo(a.count));
+    final freqTags =
+        tagCount.entries.map((e) => TagFrequency(e.key, e.value)).toList()
+          ..sort((a, b) => b.count.compareTo(a.count));
     return DriverRatingDistribution(
       stars1: s1,
       stars2: s2,
@@ -257,16 +258,19 @@ class DriverRatingRepository {
       ascending: false,
       limit: limit,
     );
-    return rows.map((r) {
-      final rawTags = r['tags'] as List<dynamic>?;
-      return DriverRatingFeedback(
-        score: (r['score'] as num).toInt(),
-        tags: rawTags?.map((e) => e.toString()).toList(growable: false) ??
-            const [],
-        comment: r['comment'] as String?,
-        issueCategory: r['issue_category'] as String?,
-        createdAt: DateTime.parse(r['created_at'] as String),
-      );
-    }).toList(growable: false);
+    return rows
+        .map((r) {
+          final rawTags = r['tags'] as List<dynamic>?;
+          return DriverRatingFeedback(
+            score: (r['score'] as num).toInt(),
+            tags:
+                rawTags?.map((e) => e.toString()).toList(growable: false) ??
+                const [],
+            comment: r['comment'] as String?,
+            issueCategory: r['issue_category'] as String?,
+            createdAt: DateTime.parse(r['created_at'] as String),
+          );
+        })
+        .toList(growable: false);
   }
 }

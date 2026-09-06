@@ -19,43 +19,74 @@ void main() {
 
   test('demo_reward_grant is capped and coursework-only', () {
     final fnStart = sql.indexOf('CREATE OR REPLACE FUNCTION demo_reward_grant');
-    final fnEnd = sql.indexOf('CREATE OR REPLACE FUNCTION redeem_reward_points', fnStart);
+    final fnEnd = sql.indexOf(
+      'CREATE OR REPLACE FUNCTION redeem_reward_points',
+      fnStart,
+    );
     final fnSql = sql.substring(fnStart, fnEnd);
     expect(fnSql, contains('p_points > 1000'));
     expect(fnSql, contains('demo_balance_cap_exceeded'));
     expect(fnSql, contains('FOR UPDATE'));
   });
 
-  test('redeem_reward_points checks balance before debiting and writes a ledger entry', () {
-    final fnStart = sql.indexOf('CREATE OR REPLACE FUNCTION redeem_reward_points');
-    final fnEnd = sql.indexOf('CREATE OR REPLACE FUNCTION restore_reward_points', fnStart);
-    final fnSql = sql.substring(fnStart, fnEnd);
-    final checkIndex = fnSql.indexOf('insufficient_reward_points');
-    final debitIndex = fnSql.indexOf('points_balance = points_balance - p_points');
-    final ledgerIndex = fnSql.indexOf("'redeem'");
-    expect(checkIndex, greaterThan(-1));
-    expect(debitIndex, greaterThan(checkIndex));
-    expect(ledgerIndex, greaterThan(debitIndex));
-  });
+  test(
+    'redeem_reward_points checks balance before debiting and writes a ledger entry',
+    () {
+      final fnStart = sql.indexOf(
+        'CREATE OR REPLACE FUNCTION redeem_reward_points',
+      );
+      final fnEnd = sql.indexOf(
+        'CREATE OR REPLACE FUNCTION restore_reward_points',
+        fnStart,
+      );
+      final fnSql = sql.substring(fnStart, fnEnd);
+      final checkIndex = fnSql.indexOf('insufficient_reward_points');
+      final debitIndex = fnSql.indexOf(
+        'points_balance = points_balance - p_points',
+      );
+      final ledgerIndex = fnSql.indexOf("'redeem'");
+      expect(checkIndex, greaterThan(-1));
+      expect(debitIndex, greaterThan(checkIndex));
+      expect(ledgerIndex, greaterThan(debitIndex));
+    },
+  );
 
-  test('restore_reward_points credits points back and writes a ledger entry', () {
-    final fnStart = sql.indexOf('CREATE OR REPLACE FUNCTION restore_reward_points');
-    final fnEnd = sql.indexOf('REVOKE ALL ON FUNCTION', fnStart);
-    final fnSql = sql.substring(fnStart, fnEnd);
-    expect(fnSql, contains('points_balance = points_balance + p_points'));
-    expect(fnSql, contains("'restore'"));
-  });
+  test(
+    'restore_reward_points credits points back and writes a ledger entry',
+    () {
+      final fnStart = sql.indexOf(
+        'CREATE OR REPLACE FUNCTION restore_reward_points',
+      );
+      final fnEnd = sql.indexOf('REVOKE ALL ON FUNCTION', fnStart);
+      final fnSql = sql.substring(fnStart, fnEnd);
+      expect(fnSql, contains('points_balance = points_balance + p_points'));
+      expect(fnSql, contains("'restore'"));
+    },
+  );
 
-  test('the internal redeem/restore helpers are never granted to authenticated clients', () {
-    expect(
-      sql,
-      isNot(contains('GRANT EXECUTE ON FUNCTION redeem_reward_points')),
-    );
-    expect(
-      sql,
-      isNot(contains('GRANT EXECUTE ON FUNCTION restore_reward_points')),
-    );
-    expect(sql, contains('GRANT EXECUTE ON FUNCTION ensure_reward_account() TO authenticated'));
-    expect(sql, contains('GRANT EXECUTE ON FUNCTION demo_reward_grant(INTEGER) TO authenticated'));
-  });
+  test(
+    'the internal redeem/restore helpers are never granted to authenticated clients',
+    () {
+      expect(
+        sql,
+        isNot(contains('GRANT EXECUTE ON FUNCTION redeem_reward_points')),
+      );
+      expect(
+        sql,
+        isNot(contains('GRANT EXECUTE ON FUNCTION restore_reward_points')),
+      );
+      expect(
+        sql,
+        contains(
+          'GRANT EXECUTE ON FUNCTION ensure_reward_account() TO authenticated',
+        ),
+      );
+      expect(
+        sql,
+        contains(
+          'GRANT EXECUTE ON FUNCTION demo_reward_grant(INTEGER) TO authenticated',
+        ),
+      );
+    },
+  );
 }

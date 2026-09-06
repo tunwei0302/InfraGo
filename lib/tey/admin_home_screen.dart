@@ -4,9 +4,6 @@ import 'package:infra_go/tey/admin_profile_screen.dart';
 import 'package:infra_go/tey/analytics_screen.dart';
 import 'package:infra_go/weather/weather_screen.dart';
 
-/// Bottom-nav shell for the admin role. Deliberately excludes the ride
-/// booking/map tab — admins review drivers and monitor conditions, they do
-/// not book rides.
 class AdminHomeScreen extends StatefulWidget {
   const AdminHomeScreen({super.key});
 

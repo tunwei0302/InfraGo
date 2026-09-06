@@ -306,7 +306,6 @@ class _DriverPickupNavigationScreenState
           .eq('id', groupId)
           .maybeSingle();
     } catch (error) {
-      // Keep the screen usable while an older database is being migrated.
       if (!error.toString().contains('current_stop_idx')) rethrow;
       return supabase
           .from('ride_groups')
@@ -745,18 +744,18 @@ class _DriverPickupNavigationScreenState
           ? cash
           : await _paymentRepository.captureWalletPayment(rideId);
       final paymentId = result['payment_id']?.toString();
-      // TEMP-DEBUG-VERIFY
+
       debugPrint('[reward-debug] settle result for ride $rideId: $result');
       if (result['success'] == true && paymentId != null) {
         await _awardCompletionReward(rideId, paymentId);
       } else if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('[debug] payment settle did not succeed: $result')),
+          SnackBar(
+            content: Text('[debug] payment settle did not succeed: $result'),
+          ),
         );
       }
-    } catch (_) {
-      // Completion is durable; the idempotent payment call can be retried.
-    }
+    } catch (_) {}
   }
 
   Future<void> _awardCompletionReward(String rideId, String paymentId) async {
@@ -766,8 +765,6 @@ class _DriverPickupNavigationScreenState
         paymentId: paymentId,
       );
     } catch (error) {
-      // TEMP-DEBUG-VERIFY: surfacing this instead of swallowing it while we
-      // track down why completion rewards aren't showing up.
       debugPrint('[reward-debug] earnCompletionReward failed: $error');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

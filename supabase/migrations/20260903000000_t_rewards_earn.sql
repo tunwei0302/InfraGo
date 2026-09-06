@@ -1,9 +1,3 @@
--- InfraGo Tey module T5: immutable reward earn on completed+paid ride.
--- Idempotency: at most one 'earn' transaction per ride_id, enforced by a
--- partial UNIQUE index so a cancelled ride followed by a new completion
--- of a different ride cannot accidentally double-award.
--- Requires rides.status='completed' and a related payment.status='paid'.
-
 ALTER TABLE reward_transactions
 DROP CONSTRAINT IF EXISTS reward_transactions_type_check;
 

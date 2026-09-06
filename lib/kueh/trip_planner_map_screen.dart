@@ -88,10 +88,6 @@ class TripPlannerMapScreen extends StatefulWidget {
   final GeoPlace? initialPickup;
   final GeoPlace? initialDestination;
 
-  /// True when this screen is pushed on its own (e.g. "Book Again" from trip
-  /// history) rather than hosted as a tab inside CommuterHomeScreen. Shows a
-  /// floating back button, since there is otherwise no way back to the
-  /// bottom-nav tab structure — this screen's own Scaffold has no AppBar.
   final bool standalone;
 
   @override
@@ -511,7 +507,6 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
         ),
       );
     } catch (_) {
-      // Keep the most recent valid ETA when OSRM is temporarily unavailable.
     } finally {
       _driverEtaRefreshInFlight = false;
     }
@@ -1021,8 +1016,6 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
         }
       }
     } on LocationSearchException {
-      // A failed reverse lookup keeps the tapped coordinates as-is; the
-      // caller's finally block already clears the resolving flag.
     } finally {
       if (mounted) setState(() => _isResolvingPin = false);
     }
@@ -1085,8 +1078,6 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
         destinationLabel: destination.name,
       );
     } catch (_) {
-      // Weather is an optional, non-blocking hint — a failed fetch just
-      // means the pickup-confirmation banner stays hidden.
       _weatherAdvisory = null;
     }
   }
@@ -1119,8 +1110,7 @@ class _TripPlannerMapScreenState extends State<TripPlannerMapScreen> {
     }
     final options = _vehicleOptionsForRoute(route);
     if (!mounted) return;
-    // Kicked off here (not awaited) so it has the time the user spends
-    // picking a vehicle to resolve before reaching pickup confirmation.
+
     unawaited(_refreshWeatherAdvisory());
     final summary = '${route.distanceText} · ${route.etaText}';
     final selection = await VehicleOptionsSheet.show(

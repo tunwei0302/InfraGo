@@ -1,6 +1,3 @@
--- InfraGo Heng module: manual driver/vehicle review, secure documents,
--- approved presence, atomic acceptance and guarded ride lifecycle.
-
 ALTER TABLE rides ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ;
 
 CREATE TABLE IF NOT EXISTS driver_verifications (
@@ -166,9 +163,6 @@ AS $$
   LEFT JOIN driver_vehicles car ON car.driver_id = me.driver_id;
 $$;
 
--- Assigned passengers may see only the approved vehicle that is serving
--- their own active ride. This deliberately excludes licence/selfie paths,
--- contact details, reviewer data and every unassigned driver.
 CREATE OR REPLACE VIEW driver_public_profiles
 WITH (security_barrier = true)
 AS
@@ -207,7 +201,6 @@ BEGIN
 END;
 $$;
 
--- Replace Kueh's compatible signature with a readiness-gated implementation.
 CREATE OR REPLACE FUNCTION upsert_my_driver_presence(
   p_coarse_lat DOUBLE PRECISION,
   p_coarse_lng DOUBLE PRECISION,
@@ -349,7 +342,6 @@ BEGIN
 END;
 $$;
 
--- Strengthen Kueh's group claim with driver approval, capacity and cancellation timestamps.
 CREATE OR REPLACE FUNCTION accept_carpool_group(p_group_id UUID)
 RETURNS JSONB
 LANGUAGE plpgsql

@@ -1,21 +1,3 @@
--- InfraGo Tey module: one-off data backfill.
---
--- The app's only ride-creation path (create_ride_with_quote_and_payment in
--- 20260829000000_f_payments_wallet.sql) always inserts a `payments` row
--- atomically alongside the `rides` row, so a ride cannot reach 'completed'
--- through normal app usage without ever having a payment. A completed ride
--- with zero payment rows was inserted directly (e.g. via the Studio table
--- editor) to test driver/admin/rating flows in isolation, bypassing that
--- RPC. This is not a code bug - it only backfills a plausible 'paid' cash
--- payment for any such orphaned completed ride, so downstream reporting
--- (this module's SDG/payment analytics) reflects a complete, consistent
--- record instead of a silent gap.
---
--- Scope is narrow and safe to re-run: only rides with status = 'completed'
--- AND zero existing payments rows are touched. idempotency_key is
--- deterministic per ride and unique-constrained, so re-running this file
--- is a no-op the second time (ON CONFLICT DO NOTHING).
-
 INSERT INTO payments (
   ride_id, group_id, payer_id, method, status, idempotency_key,
   quoted_amount, discount_amount, reward_points_redeemed,

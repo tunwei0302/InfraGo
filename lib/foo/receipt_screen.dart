@@ -95,7 +95,10 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
       children: [
         Text('Route', style: AppTextStyles.labelCaps),
         const SizedBox(height: AppSpacing.xs),
-        Text(receipt.pickupLabel, style: Theme.of(context).textTheme.bodyMedium),
+        Text(
+          receipt.pickupLabel,
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
         const Padding(
           padding: EdgeInsets.symmetric(vertical: AppSpacing.xs),
           child: Icon(Icons.arrow_downward, size: 16),
@@ -120,7 +123,10 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
             'Base fare (${quote.pricingVersion})',
             '${quote.currency} ${quote.baseAmount.toStringAsFixed(2)}',
           ),
-          _row('Vehicle multiplier', '×${quote.vehicleMultiplier.toStringAsFixed(2)}'),
+          _row(
+            'Vehicle multiplier',
+            '×${quote.vehicleMultiplier.toStringAsFixed(2)}',
+          ),
           if (quote.sharedAmount != null)
             _row(
               'Shared fare (if matched)',

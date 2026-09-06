@@ -1,15 +1,3 @@
--- InfraGo Foo module fix: earn_completion_reward previously took p_user_id
--- and p_points straight from the caller. It only checked that the ride was
--- completed and the payment was paid — never that auth.uid() was even a
--- participant of that ride, nor that p_user_id/p_points had anything to do
--- with it. Any authenticated user could call the RPC directly (bypassing
--- the app entirely) against someone else's completed+paid ride and award
--- an arbitrary number of points to an arbitrary account. This replaces it
--- with a version that recomputes points server-side from the payment's own
--- final_amount (same "never trust the client" principle
--- create_ride_with_quote_and_payment already applies to fares) and always
--- credits the ride's own rider. Rate: 10 points per RM1 of final fare paid.
-
 DROP FUNCTION IF EXISTS earn_completion_reward(UUID, UUID, UUID, INTEGER);
 
 CREATE OR REPLACE FUNCTION earn_completion_reward(

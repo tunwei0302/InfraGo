@@ -18,12 +18,12 @@ class Ride {
   });
 
   factory Ride.fromJson(Map<String, dynamic> json) => Ride(
-        id: json['id'] as String,
-        riderId: json['rider_id'] as String,
-        driverId: json['driver_id'] as String?,
-        pickup: json['pickup'] as String,
-        destination: json['destination'] as String,
-        status: json['status'] as String,
-        fare: (json['fare'] as num?)?.toDouble(),
-      );
+    id: json['id'] as String,
+    riderId: json['rider_id'] as String,
+    driverId: json['driver_id'] as String?,
+    pickup: json['pickup'] as String,
+    destination: json['destination'] as String,
+    status: json['status'] as String,
+    fare: (json['fare'] as num?)?.toDouble(),
+  );
 }

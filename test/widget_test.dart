@@ -5,8 +5,9 @@ import 'package:infra_go/shared/login_screen.dart';
 import 'package:infra_go/shared/sign_up_screen.dart';
 
 void main() {
-  testWidgets('Login screen shows validation errors on empty submit',
-      (WidgetTester tester) async {
+  testWidgets('Login screen shows validation errors on empty submit', (
+    WidgetTester tester,
+  ) async {
     await tester.pumpWidget(const MaterialApp(home: LoginScreen()));
 
     await tester.tap(find.text('Log In'));
@@ -25,8 +26,9 @@ void main() {
     expect(find.text('Join InfraGo'), findsOneWidget);
   });
 
-  testWidgets('Sign up screen shows validation errors on empty submit',
-      (WidgetTester tester) async {
+  testWidgets('Sign up screen shows validation errors on empty submit', (
+    WidgetTester tester,
+  ) async {
     await tester.pumpWidget(const MaterialApp(home: SignUpScreen()));
 
     await tester.tap(find.text('Sign Up'));

@@ -22,11 +22,15 @@ void main() {
 
     test('rejects negative distance or duration', () {
       expect(
-        () => FareEstimator.economyFare(distanceMeters: -1, durationSeconds: 60),
+        () =>
+            FareEstimator.economyFare(distanceMeters: -1, durationSeconds: 60),
         throwsArgumentError,
       );
       expect(
-        () => FareEstimator.economyFare(distanceMeters: 1000, durationSeconds: -1),
+        () => FareEstimator.economyFare(
+          distanceMeters: 1000,
+          durationSeconds: -1,
+        ),
         throwsArgumentError,
       );
     });
@@ -59,29 +63,35 @@ void main() {
       expect(quote.sharedAmount, isNull);
     });
 
-    test('shared_economy discounts by 0.75x and still reports the solo fare', () {
-      final quote = FareEstimator.quote(
-        serviceType: FareServiceType.sharedEconomy,
-        distanceMeters: distanceMeters,
-        durationSeconds: durationSeconds,
-      );
-      expect(quote.vehicleMultiplier, 0.75);
-      expect(quote.amount, closeTo(quote.baseAmount * 0.75, 0.01));
-      expect(quote.soloAmount, quote.baseAmount);
-      expect(quote.sharedAmount, quote.amount);
-    });
+    test(
+      'shared_economy discounts by 0.75x and still reports the solo fare',
+      () {
+        final quote = FareEstimator.quote(
+          serviceType: FareServiceType.sharedEconomy,
+          distanceMeters: distanceMeters,
+          durationSeconds: durationSeconds,
+        );
+        expect(quote.vehicleMultiplier, 0.75);
+        expect(quote.amount, closeTo(quote.baseAmount * 0.75, 0.01));
+        expect(quote.soloAmount, quote.baseAmount);
+        expect(quote.sharedAmount, quote.amount);
+      },
+    );
 
-    test('rounds only the final money values, not distance/duration inputs', () {
-      final quote = FareEstimator.quote(
-        serviceType: FareServiceType.sixSeater,
-        distanceMeters: 10333,
-        durationSeconds: 777,
-      );
-      expect(quote.distanceMeters, 10333);
-      expect(quote.durationSeconds, 777);
-      final decimals = (quote.amount * 100).round() / 100;
-      expect(quote.amount, decimals);
-    });
+    test(
+      'rounds only the final money values, not distance/duration inputs',
+      () {
+        final quote = FareEstimator.quote(
+          serviceType: FareServiceType.sixSeater,
+          distanceMeters: 10333,
+          durationSeconds: 777,
+        );
+        expect(quote.distanceMeters, 10333);
+        expect(quote.durationSeconds, 777);
+        final decimals = (quote.amount * 100).round() / 100;
+        expect(quote.amount, decimals);
+      },
+    );
 
     test('records formula version, currency and quoted time', () {
       final now = DateTime.utc(2026, 8, 29, 10, 0, 0);
@@ -96,29 +106,38 @@ void main() {
       expect(quote.quotedAt, now);
     });
 
-    test('a shared_economy quote below the minimum still floors at RM5 before discount', () {
-      final quote = FareEstimator.quote(
-        serviceType: FareServiceType.sharedEconomy,
-        distanceMeters: 100,
-        durationSeconds: 30,
-      );
-      expect(quote.baseAmount, 5.0);
-      expect(quote.amount, 3.75);
-    });
+    test(
+      'a shared_economy quote below the minimum still floors at RM5 before discount',
+      () {
+        final quote = FareEstimator.quote(
+          serviceType: FareServiceType.sharedEconomy,
+          distanceMeters: 100,
+          durationSeconds: 30,
+        );
+        expect(quote.baseAmount, 5.0);
+        expect(quote.amount, 3.75);
+      },
+    );
   });
 
   group('quoteAllServices', () {
-    test('returns one quote per service type sharing the same route inputs', () {
-      final quotes = FareEstimator.quoteAllServices(
-        distanceMeters: 5000,
-        durationSeconds: 600,
-      );
-      expect(quotes.map((q) => q.serviceType).toSet(), FareServiceType.values.toSet());
-      for (final quote in quotes) {
-        expect(quote.distanceMeters, 5000);
-        expect(quote.durationSeconds, 600);
-      }
-    });
+    test(
+      'returns one quote per service type sharing the same route inputs',
+      () {
+        final quotes = FareEstimator.quoteAllServices(
+          distanceMeters: 5000,
+          durationSeconds: 600,
+        );
+        expect(
+          quotes.map((q) => q.serviceType).toSet(),
+          FareServiceType.values.toSet(),
+        );
+        for (final quote in quotes) {
+          expect(quote.distanceMeters, 5000);
+          expect(quote.durationSeconds, 600);
+        }
+      },
+    );
   });
 
   group('FareServiceType.fromDbValue', () {

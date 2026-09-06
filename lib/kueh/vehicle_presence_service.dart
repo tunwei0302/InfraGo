@@ -89,9 +89,7 @@ class VehiclePresenceService {
         if (lat == null || lng == null) continue;
         final loc = LatLng(lat, lng);
         if (haversineMeters(center, loc) > radiusMeters) continue;
-        // The database issues the anonymised id; a row without one means the
-        // contract drifted, so it is dropped instead of shown under a locally
-        // invented marker.
+
         final anonymisedId = r['anonymised_id'] as String?;
         if (anonymisedId == null || anonymisedId.isEmpty) continue;
         out.add(

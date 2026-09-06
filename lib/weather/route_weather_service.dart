@@ -55,8 +55,6 @@ class RouteWeatherAdvisory {
     return RouteRiskLevel.none;
   }
 
-  /// The single leg the pickup-confirmation banner should surface, or null
-  /// when nothing along the route rises above [RouteRiskLevel.none].
   RouteAdvisoryLeg? get mostSevereLeg {
     for (final level in [RouteRiskLevel.high, RouteRiskLevel.caution]) {
       for (final leg in legs) {
@@ -67,8 +65,6 @@ class RouteWeatherAdvisory {
   }
 }
 
-/// Threshold table is a coursework estimate for this prototype, not an
-/// official MetMalaysia rainfall-warning classification.
 class WeatherRiskAssessor {
   const WeatherRiskAssessor._();
 
@@ -114,8 +110,6 @@ class WeatherRiskAssessor {
   }
 }
 
-/// Maps an Open-Meteo WMO weather code to a short human-readable label.
-/// https://open-meteo.com/en/docs (see "WMO Weather interpretation codes").
 String conditionLabelForWmoCode(int code) {
   if (code == 0) return 'Clear';
   if (code <= 3) return 'Partly cloudy';
@@ -172,8 +166,7 @@ class RouteWeatherService {
           'Weather response is missing current conditions.',
         );
       }
-      final precipitation =
-          (current['precipitation'] as num?)?.toDouble() ?? 0;
+      final precipitation = (current['precipitation'] as num?)?.toDouble() ?? 0;
       final windSpeed = (current['wind_speed_10m'] as num?)?.toDouble() ?? 0;
       final code = (current['weather_code'] as num?)?.toInt() ?? 0;
       return WeatherSnapshot(
@@ -191,10 +184,6 @@ class RouteWeatherService {
     }
   }
 
-  /// Fetches conditions at both ends of a trip and classifies the risk for
-  /// each leg. Throws [WeatherFetchException] if either fetch fails — callers
-  /// on the UI thread should treat that as "no advisory available" rather
-  /// than surfacing an error, since this is an optional, non-blocking hint.
   Future<RouteWeatherAdvisory> fetchRouteAdvisory({
     required LatLng pickup,
     required LatLng destination,

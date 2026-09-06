@@ -1,5 +1,3 @@
--- Kueh: RLS-safe shared candidate discovery and private pickup photos in chat.
-
 CREATE OR REPLACE FUNCTION list_shared_ride_candidates(p_ride_id UUID)
 RETURNS JSONB
 LANGUAGE plpgsql
@@ -31,8 +29,7 @@ BEGIN
   FROM (
     SELECT jsonb_build_object(
       'id', r.id,
-      -- Deliberately anonymous: the matcher only needs to know this is not
-      -- the current rider; create_carpool_match rechecks real ownership.
+
       'rider_id', 'anonymous-candidate',
       'status', r.status,
       'service_type', r.service_type,
@@ -51,8 +48,7 @@ BEGIN
       AND r.status IN ('waiting_match', 'requested')
       AND r.group_id IS NULL
       AND abs(extract(epoch FROM (r.departure_time - v_owner.departure_time))) <= 900
-      -- Limit disclosure before the app performs its exact 3 km haversine
-      -- check. At Kuala Lumpur latitudes, 0.03 degrees is about 3.3 km.
+
       AND abs(r.pickup_latitude - v_owner.pickup_latitude) <= 0.03
       AND abs(r.pickup_longitude - v_owner.pickup_longitude) <= 0.03
     ORDER BY abs(extract(epoch FROM (r.departure_time - v_owner.departure_time))),

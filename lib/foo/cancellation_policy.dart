@@ -48,7 +48,8 @@ class CancellationPolicy {
       );
     }
 
-    if (driverLateMinutes != null && driverLateMinutes > driverLateFreeMinutes) {
+    if (driverLateMinutes != null &&
+        driverLateMinutes > driverLateFreeMinutes) {
       return const CancellationOutcome(
         cancellable: true,
         isFree: true,
@@ -99,9 +100,7 @@ class CancellationPolicy {
       }
     }
 
-    final fee = _roundMoney(
-      (confirmedFare * feePercent).clamp(minFee, maxFee),
-    );
+    final fee = _roundMoney((confirmedFare * feePercent).clamp(minFee, maxFee));
     return CancellationOutcome(
       cancellable: true,
       isFree: false,

@@ -8,10 +8,6 @@ import 'package:infra_go/shared/app_theme.dart';
 import 'package:infra_go/shared/supabase_config.dart';
 import 'package:infra_go/tey/admin_review_repository.dart';
 
-/// Dedicated profile screen for the admin role. Unlike the shared
-/// [UserProfileScreen] used by commuters and drivers, this shows the admin
-/// review dashboard directly instead of behind a button, and omits
-/// rider/driver-only sections (reward points, driver rating, trip history).
 class AdminProfileScreen extends StatefulWidget {
   const AdminProfileScreen({super.key});
 
@@ -419,14 +415,18 @@ class _IdentityQueueBody extends StatelessWidget {
                     const Icon(Icons.badge_outlined),
                     const SizedBox(width: AppSpacing.sm),
                     Expanded(
-                      child: Text(s.driverName,
-                          style: Theme.of(context).textTheme.titleMedium),
+                      child: Text(
+                        s.driverName,
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
                     ),
                   ],
                 ),
                 const SizedBox(height: AppSpacing.sm),
-                Text('Contact: ${s.contact}',
-                    style: Theme.of(context).textTheme.bodySmall),
+                Text(
+                  'Contact: ${s.contact}',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
                 Text(
                   'Submitted: ${s.submittedAt.toLocal().day}/${s.submittedAt.toLocal().month}/${s.submittedAt.toLocal().year}',
                   style: Theme.of(context).textTheme.bodySmall,
@@ -533,8 +533,10 @@ class _VehicleQueueBody extends StatelessWidget {
                     const Icon(Icons.directions_car_outlined),
                     const SizedBox(width: AppSpacing.sm),
                     Expanded(
-                      child: Text(s.driverName,
-                          style: Theme.of(context).textTheme.titleMedium),
+                      child: Text(
+                        s.driverName,
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
                     ),
                     if (s.requestsSixSeater)
                       Container(
@@ -574,13 +576,15 @@ class _VehicleQueueBody extends StatelessWidget {
                     _InfoChip(label: 'Body', value: s.bodyType),
                     _InfoChip(label: 'Plate', value: s.plateNumber),
                     _InfoChip(
-                        label: 'Capacity',
-                        value: '${s.passengerCapacity} pax'),
+                      label: 'Capacity',
+                      value: '${s.passengerCapacity} pax',
+                    ),
                     _InfoChip(
-                        label: 'Services',
-                        value: s.serviceEligibility.isEmpty
-                            ? '-'
-                            : s.serviceEligibility.join(', ')),
+                      label: 'Services',
+                      value: s.serviceEligibility.isEmpty
+                          ? '-'
+                          : s.serviceEligibility.join(', '),
+                    ),
                   ],
                 ),
                 const SizedBox(height: AppSpacing.sm),

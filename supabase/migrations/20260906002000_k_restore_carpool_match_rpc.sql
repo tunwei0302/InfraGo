@@ -1,6 +1,3 @@
--- Restore the current 10-argument carpool RPC without removing the original
--- 9-argument signature that may already be used by older clients.
-
 CREATE OR REPLACE FUNCTION create_carpool_match(
   p_ride_a UUID,
   p_ride_b UUID,
@@ -22,8 +19,7 @@ DECLARE
   v_result JSONB;
   v_group_id UUID;
 BEGIN
-  -- Delegate validation, row locks and atomic group creation to the original
-  -- function. auth.uid() remains the authenticated caller inside that RPC.
+
   v_result := create_carpool_match(
     p_ride_a,
     p_ride_b,

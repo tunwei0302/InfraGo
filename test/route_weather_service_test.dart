@@ -11,43 +11,45 @@ http.Response _openMeteoResponse({
   double windSpeed = 0,
   int weatherCode = 0,
   int statusCode = 200,
-}) =>
-    http.Response(
-      jsonEncode({
-        'current': {
-          'precipitation': precipitation,
-          'wind_speed_10m': windSpeed,
-          'weather_code': weatherCode,
-        },
-      }),
-      statusCode,
-    );
+}) => http.Response(
+  jsonEncode({
+    'current': {
+      'precipitation': precipitation,
+      'wind_speed_10m': windSpeed,
+      'weather_code': weatherCode,
+    },
+  }),
+  statusCode,
+);
 
 void main() {
   const pickup = LatLng(3.1390, 101.6869);
   const destination = LatLng(3.2000, 101.7500);
 
   group('fetchSnapshot', () {
-    test('parses precipitation, wind and condition from a live-shaped response', () async {
-      final service = RouteWeatherService(
-        httpGet: (uri) async {
-          expect(uri.host, 'api.open-meteo.com');
-          expect(uri.queryParameters['latitude'], '3.1390');
-          expect(uri.queryParameters['longitude'], '101.6869');
-          return _openMeteoResponse(
-            precipitation: 12.5,
-            windSpeed: 18.0,
-            weatherCode: 61,
-          );
-        },
-      );
+    test(
+      'parses precipitation, wind and condition from a live-shaped response',
+      () async {
+        final service = RouteWeatherService(
+          httpGet: (uri) async {
+            expect(uri.host, 'api.open-meteo.com');
+            expect(uri.queryParameters['latitude'], '3.1390');
+            expect(uri.queryParameters['longitude'], '101.6869');
+            return _openMeteoResponse(
+              precipitation: 12.5,
+              windSpeed: 18.0,
+              weatherCode: 61,
+            );
+          },
+        );
 
-      final snapshot = await service.fetchSnapshot(pickup);
+        final snapshot = await service.fetchSnapshot(pickup);
 
-      expect(snapshot.precipitationMmPerHour, 12.5);
-      expect(snapshot.windSpeedKph, 18.0);
-      expect(snapshot.condition, 'Rain');
-    });
+        expect(snapshot.precipitationMmPerHour, 12.5);
+        expect(snapshot.windSpeedKph, 18.0);
+        expect(snapshot.condition, 'Rain');
+      },
+    );
 
     test('throws WeatherFetchException on a non-2xx status', () async {
       final service = RouteWeatherService(

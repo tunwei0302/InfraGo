@@ -1,9 +1,3 @@
--- InfraGo Foo module: saved weather locations. Lets a signed-in user name
--- and revisit specific spots (Home, Campus, ...) on the Weather screen
--- instead of only the device GPS / Kuala Lumpur default. Owner-only CRUD via
--- RLS; no cross-user visibility since these are personal shortcuts, not
--- shared/community data.
-
 CREATE TABLE IF NOT EXISTS weather_saved_locations (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL,
@@ -17,8 +11,6 @@ CREATE TABLE IF NOT EXISTS weather_saved_locations (
 CREATE INDEX IF NOT EXISTS idx_weather_saved_locations_user
   ON weather_saved_locations(user_id);
 
--- One name per user (case-insensitive) so the quick-switch list in the app
--- never shows two ambiguous "Home" entries.
 CREATE UNIQUE INDEX IF NOT EXISTS uq_weather_saved_locations_user_label
   ON weather_saved_locations(user_id, lower(label));
 

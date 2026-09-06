@@ -12,9 +12,6 @@ import 'package:infra_go/weather/weather_screen.dart';
 Future<(LatLng, String)> _fakeResolveLocation() async =>
     (kWeatherDefaultReferencePoint, kWeatherDefaultReferenceLabel);
 
-/// Widget tests never call `Supabase.initialize`, and constructing a real
-/// `SupabaseClient` spins up a GoTrue auto-refresh timer that would outlive
-/// the test — so this stubs every operation and passes no client at all.
 WeatherLocationRepository _fakeLocationRepository() =>
     WeatherLocationRepository(null, selectAll: () async => const []);
 
@@ -23,17 +20,16 @@ http.Response _openMeteoResponse({
   double windSpeed = 0,
   int weatherCode = 0,
   int statusCode = 200,
-}) =>
-    http.Response(
-      jsonEncode({
-        'current': {
-          'precipitation': precipitation,
-          'wind_speed_10m': windSpeed,
-          'weather_code': weatherCode,
-        },
-      }),
-      statusCode,
-    );
+}) => http.Response(
+  jsonEncode({
+    'current': {
+      'precipitation': precipitation,
+      'wind_speed_10m': windSpeed,
+      'weather_code': weatherCode,
+    },
+  }),
+  statusCode,
+);
 
 void main() {
   testWidgets(
@@ -44,18 +40,23 @@ void main() {
       );
 
       await tester.pumpWidget(
-        MaterialApp(home: WeatherScreen(
-          service: service,
-          resolveLocation: _fakeResolveLocation,
-          locationRepository: _fakeLocationRepository(),
-        )),
+        MaterialApp(
+          home: WeatherScreen(
+            service: service,
+            resolveLocation: _fakeResolveLocation,
+            locationRepository: _fakeLocationRepository(),
+          ),
+        ),
       );
       await tester.pumpAndSettle();
 
       expect(find.text('Clear'), findsOneWidget);
       expect(find.text('0.0 mm/h'), findsOneWidget);
       expect(find.text('5 km/h'), findsOneWidget);
-      expect(find.textContaining('No significant weather risk'), findsOneWidget);
+      expect(
+        find.textContaining('No significant weather risk'),
+        findsOneWidget,
+      );
     },
   );
 
@@ -66,11 +67,13 @@ void main() {
     );
 
     await tester.pumpWidget(
-      MaterialApp(home: WeatherScreen(
+      MaterialApp(
+        home: WeatherScreen(
           service: service,
           resolveLocation: _fakeResolveLocation,
           locationRepository: _fakeLocationRepository(),
-        )),
+        ),
+      ),
     );
     await tester.pumpAndSettle();
 
@@ -84,11 +87,13 @@ void main() {
     );
 
     await tester.pumpWidget(
-      MaterialApp(home: WeatherScreen(
+      MaterialApp(
+        home: WeatherScreen(
           service: service,
           resolveLocation: _fakeResolveLocation,
           locationRepository: _fakeLocationRepository(),
-        )),
+        ),
+      ),
     );
     await tester.pumpAndSettle();
 

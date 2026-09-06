@@ -1,8 +1,3 @@
--- InfraGo Foo module: private storage for optional pickup-landmark photos.
--- Object path convention: {rider_id}/{ride_id}/photo.{ext} so RLS can scope
--- both the uploading rider and the eventually-assigned driver without a
--- lookup table. Apply only after reviewing it with the team.
-
 INSERT INTO storage.buckets (id, name, public)
 VALUES ('pickup-landmarks', 'pickup-landmarks', FALSE)
 ON CONFLICT (id) DO NOTHING;

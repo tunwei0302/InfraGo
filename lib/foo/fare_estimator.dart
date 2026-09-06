@@ -7,10 +7,13 @@ enum FareServiceType {
 
   final String dbValue;
 
-  static FareServiceType fromDbValue(String value) => FareServiceType.values
-      .firstWhere((type) => type.dbValue == value, orElse: () {
-    throw ArgumentError.value(value, 'value', 'unknown service_type');
-  });
+  static FareServiceType fromDbValue(String value) =>
+      FareServiceType.values.firstWhere(
+        (type) => type.dbValue == value,
+        orElse: () {
+          throw ArgumentError.value(value, 'value', 'unknown service_type');
+        },
+      );
 }
 
 class FareQuote {
@@ -70,7 +73,9 @@ class FareEstimator {
     required double durationSeconds,
   }) {
     if (distanceMeters < 0 || durationSeconds < 0) {
-      throw ArgumentError('distanceMeters and durationSeconds must not be negative');
+      throw ArgumentError(
+        'distanceMeters and durationSeconds must not be negative',
+      );
     }
     final km = distanceMeters / 1000;
     final minutes = durationSeconds / 60;
@@ -116,12 +121,14 @@ class FareEstimator {
     DateTime? quotedAt,
   }) {
     return FareServiceType.values
-        .map((type) => quote(
-              serviceType: type,
-              distanceMeters: distanceMeters,
-              durationSeconds: durationSeconds,
-              quotedAt: quotedAt,
-            ))
+        .map(
+          (type) => quote(
+            serviceType: type,
+            distanceMeters: distanceMeters,
+            durationSeconds: durationSeconds,
+            quotedAt: quotedAt,
+          ),
+        )
         .toList();
   }
 

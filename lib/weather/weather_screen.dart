@@ -10,9 +10,6 @@ import 'package:infra_go/shared/supabase_config.dart';
 import 'package:infra_go/weather/route_weather_service.dart';
 import 'package:infra_go/weather/weather_location_repository.dart';
 
-/// Used whenever the device position is unavailable (permission denied,
-/// location services off, or a timeout) — keeps the screen useful even
-/// without a GPS fix.
 const LatLng kWeatherDefaultReferencePoint = LatLng(3.1390, 101.6869);
 const String kWeatherDefaultReferenceLabel = 'Kuala Lumpur (default)';
 
@@ -50,9 +47,9 @@ class WeatherScreen extends StatefulWidget {
     RouteWeatherService? service,
     WeatherLocationResolver? resolveLocation,
     WeatherLocationRepository? locationRepository,
-  })  : _service = service,
-        _resolveLocation = resolveLocation,
-        _locationRepository = locationRepository;
+  }) : _service = service,
+       _resolveLocation = resolveLocation,
+       _locationRepository = locationRepository;
 
   final RouteWeatherService? _service;
   final WeatherLocationResolver? _resolveLocation;
@@ -66,7 +63,8 @@ class _WeatherScreenState extends State<WeatherScreen> {
   late RouteWeatherService _weather;
   late WeatherLocationResolver _resolvePoint;
   late WeatherLocationRepository _locations;
-  final PhotonLocationSearchService _placeSearch = PhotonLocationSearchService();
+  final PhotonLocationSearchService _placeSearch =
+      PhotonLocationSearchService();
   bool _isLoading = true;
   WeatherSnapshot? _snapshot;
   String? _error;
@@ -83,7 +81,8 @@ class _WeatherScreenState extends State<WeatherScreen> {
     super.initState();
     _weather = widget._service ?? RouteWeatherService();
     _resolvePoint = widget._resolveLocation ?? _defaultResolvePoint;
-    _locations = widget._locationRepository ?? WeatherLocationRepository(supabase);
+    _locations =
+        widget._locationRepository ?? WeatherLocationRepository(supabase);
     unawaited(_refresh());
     unawaited(_loadSavedLocations());
   }
@@ -191,8 +190,9 @@ class _WeatherScreenState extends State<WeatherScreen> {
       unawaited(_viewSavedLocation(saved));
     } on WeatherLocationException catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(error.message)));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.message)));
     }
   }
 
@@ -224,8 +224,9 @@ class _WeatherScreenState extends State<WeatherScreen> {
       await _loadSavedLocations();
     } on WeatherLocationException catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(error.message)));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.message)));
     }
   }
 
@@ -237,7 +238,9 @@ class _WeatherScreenState extends State<WeatherScreen> {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final snapshot = _snapshot;
-    final risk = snapshot == null ? null : WeatherRiskAssessor.classify(snapshot);
+    final risk = snapshot == null
+        ? null
+        : WeatherRiskAssessor.classify(snapshot);
     final message = snapshot == null
         ? null
         : WeatherRiskAssessor.messageFor(risk!, _locationLabel);
@@ -324,20 +327,20 @@ class _RiskBanner extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final (background, foreground, icon) = switch (risk) {
       RouteRiskLevel.high => (
-          scheme.errorContainer,
-          scheme.onErrorContainer,
-          Icons.warning_amber_rounded,
-        ),
+        scheme.errorContainer,
+        scheme.onErrorContainer,
+        Icons.warning_amber_rounded,
+      ),
       RouteRiskLevel.caution => (
-          scheme.tertiaryContainer,
-          scheme.onTertiaryContainer,
-          Icons.water_drop_outlined,
-        ),
+        scheme.tertiaryContainer,
+        scheme.onTertiaryContainer,
+        Icons.water_drop_outlined,
+      ),
       RouteRiskLevel.none => (
-          scheme.primaryContainer,
-          scheme.onPrimaryContainer,
-          Icons.check_circle_outline,
-        ),
+        scheme.primaryContainer,
+        scheme.onPrimaryContainer,
+        Icons.check_circle_outline,
+      ),
     };
     return Card(
       color: background,
@@ -597,10 +600,7 @@ class _SavedLocationFormSheetState extends State<_SavedLocationFormSheet> {
       });
       return;
     }
-    _debounce = Timer(
-      const Duration(milliseconds: 650),
-      () => _search(query),
-    );
+    _debounce = Timer(const Duration(milliseconds: 650), () => _search(query));
   }
 
   Future<void> _search(String query) async {
@@ -689,7 +689,7 @@ class _SavedLocationFormSheetState extends State<_SavedLocationFormSheet> {
                     _selectedPlace?.subtitle.isNotEmpty == true
                         ? _selectedPlace!.subtitle
                         : '${_selectedPoint!.latitude.toStringAsFixed(5)}, '
-                            '${_selectedPoint!.longitude.toStringAsFixed(5)}',
+                              '${_selectedPoint!.longitude.toStringAsFixed(5)}',
                   ),
                   trailing: TextButton(
                     onPressed: () => setState(() => _selectedPoint = null),
@@ -749,9 +749,7 @@ class _SavedLocationFormSheetState extends State<_SavedLocationFormSheet> {
       );
     }
     if (_searchController.text.trim().length < 3) {
-      return const Center(
-        child: Text('Type at least 3 characters to search.'),
-      );
+      return const Center(child: Text('Type at least 3 characters to search.'));
     }
     if (_isSearching && _results.isEmpty) {
       return const Center(child: CircularProgressIndicator());

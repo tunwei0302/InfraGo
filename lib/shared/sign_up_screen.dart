@@ -40,10 +40,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
       await supabase.auth.signUp(
         email: _emailController.text.trim(),
         password: _passwordController.text,
-        data: {
-          'name': _nameController.text.trim(),
-          'role': _role,
-        },
+        data: {'name': _nameController.text.trim(), 'role': _role},
       );
       if (mounted) {
         Navigator.pop(context);

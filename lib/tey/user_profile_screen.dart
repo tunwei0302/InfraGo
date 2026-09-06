@@ -58,11 +58,10 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         driverStatus = await _loadDriverStatuses(user.id);
       } else {
         try {
-          rewardBalance =
-              await RewardsRepository(supabase).ensureRewardAccount();
-        } catch (_) {
-          // Reward account lookup is best-effort; leave balance unset on failure
-        }
+          rewardBalance = await RewardsRepository(
+            supabase,
+          ).ensureRewardAccount();
+        } catch (_) {}
       }
 
       if (!mounted) return;
@@ -115,9 +114,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         vehicleApproval = veh['approval_status']?.toString();
         vehicleCapacity = (veh['passenger_capacity'] as num?)?.toInt();
       }
-    } catch (_) {
-      // Driver-only tables gracefully fall back to null on lookup failure
-    }
+    } catch (_) {}
     return _DriverStatusResult(
       rating: rating,
       identityStatus: identityStatus,
@@ -183,166 +180,174 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _loadFailed
-              ? Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Text('Could not load your profile.'),
-                      const SizedBox(height: 12),
-                      ElevatedButton(
-                        onPressed: _loadAll,
-                        child: const Text('Retry'),
-                      ),
-                    ],
+          ? Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text('Could not load your profile.'),
+                  const SizedBox(height: 12),
+                  ElevatedButton(
+                    onPressed: _loadAll,
+                    child: const Text('Retry'),
                   ),
-                )
-              : RefreshIndicator(
-                  onRefresh: _loadAll,
-                  child: ListView(
-                    padding: const EdgeInsets.all(AppSpacing.marginMobile),
+                ],
+              ),
+            )
+          : RefreshIndicator(
+              onRefresh: _loadAll,
+              child: ListView(
+                padding: const EdgeInsets.all(AppSpacing.marginMobile),
+                children: [
+                  Row(
                     children: [
-                      Row(
-                        children: [
-                          const CircleAvatar(
-                              radius: 40, child: Icon(Icons.person, size: 40)),
-                          const SizedBox(width: AppSpacing.gutter),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  _profile?['name'] as String? ?? '-',
-                                  style: Theme.of(context).textTheme.titleLarge,
-                                ),
-                                const SizedBox(height: AppSpacing.xs),
-                                Text(email),
-                                const SizedBox(height: AppSpacing.xs),
-                                Text(
-                                  'Role: ${_formatRole(_profile?['role'] as String?)}',
-                                  style: AppTextStyles.labelCaps,
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
+                      const CircleAvatar(
+                        radius: 40,
+                        child: Icon(Icons.person, size: 40),
                       ),
-                      const SizedBox(height: AppSpacing.lg),
-                      if (isDriver)
-                        _SmallStatCard(
-                          label: 'Driver rating',
-                          value: _driverRating?.displayAverage ??
-                              'No ratings yet',
-                          icon: Icons.star_border_outlined,
-                          highlight: scheme.tertiaryContainer,
-                          onHighlight: scheme.onTertiaryContainer,
-                        )
-                      else
-                        _SmallStatCard(
-                          label: 'Reward points',
-                          value: _rewardBalance == null ? '…' : '$_rewardBalance',
-                          icon: Icons.card_giftcard_outlined,
-                          highlight: scheme.primaryContainer,
-                          onHighlight: scheme.onPrimaryContainer,
-                        ),
-                      if (isDriver) ...[
-                        const SizedBox(height: AppSpacing.lg),
-                        Text('Driver onboarding', style: AppTextStyles.sectionHeader),
-                        const SizedBox(height: AppSpacing.md),
-                        Card(
-                          child: Padding(
-                            padding: const EdgeInsets.all(AppSpacing.gutter),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                _StatusRow(
-                                  label: 'Identity (licence + selfie)',
-                                  status: _identityStatus,
-                                  fallback: 'Not submitted',
-                                  colorScheme: scheme,
-                                  statusColor: _statusColor,
-                                  statusLabel: _statusLabel,
-                                ),
-                                const Divider(height: AppSpacing.lg),
-                                _StatusRow(
-                                  label: 'Vehicle registration',
-                                  status: _vehicleApproval,
-                                  fallback: 'Not submitted',
-                                  subtitle: _vehicleCapacity != null
-                                      ? 'Capacity: $_vehicleCapacity pax'
-                                      : null,
-                                  colorScheme: scheme,
-                                  statusColor: _statusColor,
-                                  statusLabel: _statusLabel,
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                        if (_vehicleApproval?.toLowerCase() == 'pending' &&
-                            (_vehicleCapacity ?? 0) < 6)
-                          Padding(
-                            padding: const EdgeInsets.only(
-                                top: AppSpacing.sm,
-                                left: AppSpacing.md,
-                                right: AppSpacing.md),
-                            child: Text(
-                              'Note: 6-Seater service requires registered passenger capacity of at least 6.',
-                              style: TextStyle(
-                                  color: scheme.error,
-                                  fontStyle: FontStyle.italic),
-                            ),
-                          ),
-                      ],
-                      const SizedBox(height: AppSpacing.lg),
-                      if (isDriver)
-                        ElevatedButton.icon(
-                          onPressed: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                  builder: (_) => const TripHistoryScreen(
-                                      isDriver: true)),
-                            );
-                          },
-                          icon: const Icon(Icons.history),
-                          label: const Text('Trip History'),
-                        )
-                      else
-                        Row(
+                      const SizedBox(width: AppSpacing.gutter),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Expanded(
-                              child: ElevatedButton.icon(
-                                onPressed: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                        builder: (_) => const RewardsScreen()),
-                                  );
-                                },
-                                icon: const Icon(Icons.card_giftcard),
-                                label: const Text('View Rewards'),
-                              ),
+                            Text(
+                              _profile?['name'] as String? ?? '-',
+                              style: Theme.of(context).textTheme.titleLarge,
                             ),
-                            const SizedBox(width: AppSpacing.md),
-                            Expanded(
-                              child: OutlinedButton.icon(
-                                onPressed: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                        builder: (_) =>
-                                            const TripHistoryScreen()),
-                                  );
-                                },
-                                icon: const Icon(Icons.history),
-                                label: const Text('Trip History'),
-                              ),
+                            const SizedBox(height: AppSpacing.xs),
+                            Text(email),
+                            const SizedBox(height: AppSpacing.xs),
+                            Text(
+                              'Role: ${_formatRole(_profile?['role'] as String?)}',
+                              style: AppTextStyles.labelCaps,
                             ),
                           ],
                         ),
+                      ),
                     ],
                   ),
-                ),
+                  const SizedBox(height: AppSpacing.lg),
+                  if (isDriver)
+                    _SmallStatCard(
+                      label: 'Driver rating',
+                      value: _driverRating?.displayAverage ?? 'No ratings yet',
+                      icon: Icons.star_border_outlined,
+                      highlight: scheme.tertiaryContainer,
+                      onHighlight: scheme.onTertiaryContainer,
+                    )
+                  else
+                    _SmallStatCard(
+                      label: 'Reward points',
+                      value: _rewardBalance == null ? '…' : '$_rewardBalance',
+                      icon: Icons.card_giftcard_outlined,
+                      highlight: scheme.primaryContainer,
+                      onHighlight: scheme.onPrimaryContainer,
+                    ),
+                  if (isDriver) ...[
+                    const SizedBox(height: AppSpacing.lg),
+                    Text(
+                      'Driver onboarding',
+                      style: AppTextStyles.sectionHeader,
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(AppSpacing.gutter),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _StatusRow(
+                              label: 'Identity (licence + selfie)',
+                              status: _identityStatus,
+                              fallback: 'Not submitted',
+                              colorScheme: scheme,
+                              statusColor: _statusColor,
+                              statusLabel: _statusLabel,
+                            ),
+                            const Divider(height: AppSpacing.lg),
+                            _StatusRow(
+                              label: 'Vehicle registration',
+                              status: _vehicleApproval,
+                              fallback: 'Not submitted',
+                              subtitle: _vehicleCapacity != null
+                                  ? 'Capacity: $_vehicleCapacity pax'
+                                  : null,
+                              colorScheme: scheme,
+                              statusColor: _statusColor,
+                              statusLabel: _statusLabel,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    if (_vehicleApproval?.toLowerCase() == 'pending' &&
+                        (_vehicleCapacity ?? 0) < 6)
+                      Padding(
+                        padding: const EdgeInsets.only(
+                          top: AppSpacing.sm,
+                          left: AppSpacing.md,
+                          right: AppSpacing.md,
+                        ),
+                        child: Text(
+                          'Note: 6-Seater service requires registered passenger capacity of at least 6.',
+                          style: TextStyle(
+                            color: scheme.error,
+                            fontStyle: FontStyle.italic,
+                          ),
+                        ),
+                      ),
+                  ],
+                  const SizedBox(height: AppSpacing.lg),
+                  if (isDriver)
+                    ElevatedButton.icon(
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) =>
+                                const TripHistoryScreen(isDriver: true),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.history),
+                      label: const Text('Trip History'),
+                    )
+                  else
+                    Row(
+                      children: [
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            onPressed: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => const RewardsScreen(),
+                                ),
+                              );
+                            },
+                            icon: const Icon(Icons.card_giftcard),
+                            label: const Text('View Rewards'),
+                          ),
+                        ),
+                        const SizedBox(width: AppSpacing.md),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => const TripHistoryScreen(),
+                                ),
+                              );
+                            },
+                            icon: const Icon(Icons.history),
+                            label: const Text('Trip History'),
+                          ),
+                        ),
+                      ],
+                    ),
+                ],
+              ),
+            ),
     );
   }
 }
@@ -387,19 +392,25 @@ class _SmallStatCard extends StatelessWidget {
               children: [
                 Icon(icon, color: onHighlight),
                 const SizedBox(width: AppSpacing.xs),
-                Text(label,
-                    style: TextStyle(
-                        color: onHighlight,
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold)),
+                Text(
+                  label,
+                  style: TextStyle(
+                    color: onHighlight,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
               ],
             ),
             const SizedBox(height: AppSpacing.xs),
-            Text(value,
-                style: TextStyle(
-                    color: onHighlight,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 18)),
+            Text(
+              value,
+              style: TextStyle(
+                color: onHighlight,
+                fontWeight: FontWeight.bold,
+                fontSize: 18,
+              ),
+            ),
           ],
         ),
       ),
@@ -436,14 +447,15 @@ class _StatusRow extends StatelessWidget {
             children: [
               Text(label, style: AppTextStyles.labelCaps),
               if (subtitle != null)
-                Text(subtitle!,
-                    style: Theme.of(context).textTheme.bodySmall),
+                Text(subtitle!, style: Theme.of(context).textTheme.bodySmall),
             ],
           ),
         ),
         Container(
           padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.sm, vertical: 4),
+            horizontal: AppSpacing.sm,
+            vertical: 4,
+          ),
           decoration: BoxDecoration(
             color: statusColor(status, colorScheme).withOpacity(0.15),
             borderRadius: BorderRadius.circular(12),
@@ -451,9 +463,10 @@ class _StatusRow extends StatelessWidget {
           child: Text(
             statusLabel(status, fallback),
             style: TextStyle(
-                color: statusColor(status, colorScheme),
-                fontWeight: FontWeight.bold,
-                fontSize: 12),
+              color: statusColor(status, colorScheme),
+              fontWeight: FontWeight.bold,
+              fontSize: 12,
+            ),
           ),
         ),
       ],

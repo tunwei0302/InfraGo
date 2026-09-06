@@ -1,5 +1,3 @@
--- Heng: complete the driver-side four-stop shared-ride workflow.
-
 ALTER TABLE ride_groups
   ADD COLUMN IF NOT EXISTS current_stop_idx INTEGER
     CHECK (current_stop_idx IS NULL OR current_stop_idx BETWEEN 0 AND 3);
@@ -27,17 +25,12 @@ CREATE TRIGGER ride_groups_initialise_shared_stop
 BEFORE UPDATE OF driver_id, status ON ride_groups
 FOR EACH ROW EXECUTE FUNCTION initialise_shared_group_stop();
 
--- Repair groups accepted before current_stop_idx was deployed.
 UPDATE ride_groups
 SET current_stop_idx = 0
 WHERE driver_id IS NOT NULL
   AND status IN ('driver_assigned', 'en_route')
   AND current_stop_idx IS NULL;
 
--- The previous Heng enhancement migration accidentally expected
--- `ready_to_match`; Kueh's atomic matcher creates groups as `matched`.
--- Reinstall the claim RPC with the canonical state and initialise stop 0 in
--- the same transaction so a newly assigned driver always has a target.
 CREATE OR REPLACE FUNCTION accept_carpool_group(p_group_id UUID)
 RETURNS JSONB
 LANGUAGE plpgsql
@@ -188,8 +181,6 @@ BEGIN
   v_arrivals := coalesce(v_group.stop_arrived_at, ARRAY[]::TIMESTAMPTZ[])
     || ARRAY[now()]::TIMESTAMPTZ[];
 
-  -- Complete each rider independently at that rider's own drop-off. The
-  -- shared group remains active until the final drop-off is confirmed.
   IF v_stop_kind = 'pickup' THEN
     UPDATE rides
     SET status = 'en_route'
@@ -257,9 +248,6 @@ BEGIN
 END;
 $$;
 
--- Repair drop-offs that were confirmed while the previous implementation
--- still kept every member ride en_route until the group finished. The active
--- pointer identifies stops strictly before it as already confirmed.
 UPDATE rides ride
 SET status = 'completed',
     completed_at = coalesce(

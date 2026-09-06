@@ -6,21 +6,17 @@ WeatherSnapshot _snapshot({
   double precipitation = 0,
   double wind = 0,
   String condition = 'Clear',
-}) =>
-    WeatherSnapshot(
-      precipitationMmPerHour: precipitation,
-      windSpeedKph: wind,
-      condition: condition,
-      fetchedAt: DateTime(2026, 9, 2, 12),
-    );
+}) => WeatherSnapshot(
+  precipitationMmPerHour: precipitation,
+  windSpeedKph: wind,
+  condition: condition,
+  fetchedAt: DateTime(2026, 9, 2, 12),
+);
 
 void main() {
   group('WeatherRiskAssessor.classify', () {
     test('no rain and calm wind is none', () {
-      expect(
-        WeatherRiskAssessor.classify(_snapshot()),
-        RouteRiskLevel.none,
-      );
+      expect(WeatherRiskAssessor.classify(_snapshot()), RouteRiskLevel.none);
     });
 
     test('light rain below caution threshold is none', () {
@@ -115,18 +111,21 @@ void main() {
       expect(advisory.overallRisk, RouteRiskLevel.high);
     });
 
-    test('mostSevereLeg picks the highest-risk leg, preferring high over caution', () {
-      final cautionLeg = WeatherRiskAssessor.assess(
-        label: 'pickup',
-        snapshot: _snapshot(precipitation: 6),
-      );
-      final highLeg = WeatherRiskAssessor.assess(
-        label: 'destination',
-        snapshot: _snapshot(precipitation: 25),
-      );
-      final advisory = RouteWeatherAdvisory(legs: [cautionLeg, highLeg]);
-      expect(advisory.mostSevereLeg, highLeg);
-    });
+    test(
+      'mostSevereLeg picks the highest-risk leg, preferring high over caution',
+      () {
+        final cautionLeg = WeatherRiskAssessor.assess(
+          label: 'pickup',
+          snapshot: _snapshot(precipitation: 6),
+        );
+        final highLeg = WeatherRiskAssessor.assess(
+          label: 'destination',
+          snapshot: _snapshot(precipitation: 25),
+        );
+        final advisory = RouteWeatherAdvisory(legs: [cautionLeg, highLeg]);
+        expect(advisory.mostSevereLeg, highLeg);
+      },
+    );
 
     test('mostSevereLeg is null when every leg is risk-free', () {
       final advisory = RouteWeatherAdvisory(

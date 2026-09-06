@@ -170,7 +170,10 @@ class AppTheme {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(AppRadius.standard),
-          borderSide: BorderSide(color: _colorScheme.primaryContainer, width: 2),
+          borderSide: BorderSide(
+            color: _colorScheme.primaryContainer,
+            width: 2,
+          ),
         ),
       ),
       bottomNavigationBarTheme: BottomNavigationBarThemeData(

@@ -2,11 +2,6 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:infra_go/foo/receipt_repository.dart';
 
-// These fixtures mirror exactly what create_ride_with_quote_and_payment and
-// cancel_ride_and_settle_payment (20260829000000_f_payments_wallet.sql)
-// write and what Supabase's embedded-resource select in
-// ReceiptRepository.loadReceipt returns, so a column rename or type change
-// on either side of that boundary breaks this test instead of the app.
 Map<String, dynamic> _bookedRideJson() => {
   'id': 'ride-1',
   'driver_id': 'driver-1',
@@ -76,46 +71,54 @@ Map<String, dynamic> _refundedRideJson() {
 }
 
 void main() {
-  test('booking-to-receipt: a freshly booked ride parses route, category and fare breakdown', () {
-    final receipt = ReceiptData.fromJson(_bookedRideJson());
+  test(
+    'booking-to-receipt: a freshly booked ride parses route, category and fare breakdown',
+    () {
+      final receipt = ReceiptData.fromJson(_bookedRideJson());
 
-    expect(receipt.pickupLabel, 'Home, Jalan Ampang');
-    expect(receipt.destinationLabel, 'Office, KLCC');
-    expect(receipt.driverId, 'driver-1');
-    expect(receipt.serviceType, 'six_seater');
-    expect(receipt.status, 'requested');
+      expect(receipt.pickupLabel, 'Home, Jalan Ampang');
+      expect(receipt.destinationLabel, 'Office, KLCC');
+      expect(receipt.driverId, 'driver-1');
+      expect(receipt.serviceType, 'six_seater');
+      expect(receipt.status, 'requested');
 
-    final quote = receipt.fareQuote;
-    expect(quote, isNotNull);
-    expect(quote!.baseAmount, 18.0);
-    expect(quote.vehicleMultiplier, 1.35);
-    expect(quote.sharedAmount, isNull);
+      final quote = receipt.fareQuote;
+      expect(quote, isNotNull);
+      expect(quote!.baseAmount, 18.0);
+      expect(quote.vehicleMultiplier, 1.35);
+      expect(quote.sharedAmount, isNull);
 
-    final payment = receipt.payment;
-    expect(payment, isNotNull);
-    expect(payment!.method, 'cash');
-    expect(payment.status, 'pending');
-    expect(payment.quotedAmount, 24.30);
-    expect(payment.finalAmount, isNull);
-  });
+      final payment = receipt.payment;
+      expect(payment, isNotNull);
+      expect(payment!.method, 'cash');
+      expect(payment.status, 'pending');
+      expect(payment.quotedAmount, 24.30);
+      expect(payment.finalAmount, isNull);
+    },
+  );
 
-  test('booking-to-refund: a cancelled+refunded ride parses fee, refund and final amount', () {
-    final receipt = ReceiptData.fromJson(_refundedRideJson());
+  test(
+    'booking-to-refund: a cancelled+refunded ride parses fee, refund and final amount',
+    () {
+      final receipt = ReceiptData.fromJson(_refundedRideJson());
 
-    expect(receipt.status, 'cancelled');
-    expect(receipt.cancelledAt, DateTime.parse('2026-08-29T12:02:00Z'));
-    expect(receipt.cancellationReason, 'Rider cancelled');
+      expect(receipt.status, 'cancelled');
+      expect(receipt.cancelledAt, DateTime.parse('2026-08-29T12:02:00Z'));
+      expect(receipt.cancellationReason, 'Rider cancelled');
 
-    final payment = receipt.payment!;
-    expect(payment.status, 'refunded');
-    expect(payment.method, 'demo_wallet');
-    expect(payment.cancellationFee, 3.0);
-    expect(payment.refundedAmount, 21.30);
-    expect(payment.finalAmount, 3.0);
-    // The amount actually retained plus the amount refunded must reconcile
-    // back to what was quoted, or the receipt would show money vanishing.
-    expect(payment.refundedAmount + payment.cancellationFee, payment.quotedAmount);
-  });
+      final payment = receipt.payment!;
+      expect(payment.status, 'refunded');
+      expect(payment.method, 'demo_wallet');
+      expect(payment.cancellationFee, 3.0);
+      expect(payment.refundedAmount, 21.30);
+      expect(payment.finalAmount, 3.0);
+
+      expect(
+        payment.refundedAmount + payment.cancellationFee,
+        payment.quotedAmount,
+      );
+    },
+  );
 
   test('a ride still waiting for a driver has no driver id yet', () {
     final json = Map<String, dynamic>.from(_bookedRideJson());
@@ -125,15 +128,18 @@ void main() {
     expect(receipt.driverId, isNull);
   });
 
-  test('a ride with no fare_quotes/payments yet does not crash the receipt', () {
-    final json = Map<String, dynamic>.from(_bookedRideJson());
-    json['fare_quotes'] = <Map<String, dynamic>>[];
-    json['payments'] = <Map<String, dynamic>>[];
+  test(
+    'a ride with no fare_quotes/payments yet does not crash the receipt',
+    () {
+      final json = Map<String, dynamic>.from(_bookedRideJson());
+      json['fare_quotes'] = <Map<String, dynamic>>[];
+      json['payments'] = <Map<String, dynamic>>[];
 
-    final receipt = ReceiptData.fromJson(json);
-    expect(receipt.fareQuote, isNull);
-    expect(receipt.payment, isNull);
-  });
+      final receipt = ReceiptData.fromJson(json);
+      expect(receipt.fareQuote, isNull);
+      expect(receipt.payment, isNull);
+    },
+  );
 
   test('a matched shared ride reports both the solo and shared amounts', () {
     final json = Map<String, dynamic>.from(_bookedRideJson());

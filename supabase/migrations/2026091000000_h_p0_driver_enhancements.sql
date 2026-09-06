@@ -1,16 +1,3 @@
--- =====================================================================
--- Migration: 2026091000000_h_p0_driver_enhancements.sql
--- Module:    HENG (Driver Operations)
--- Scope:     P0 Demo blocker fixes + driver stepwise progression +
---            rides table safety net (RLS + indexes)
--- =====================================================================
-
--- *********************************************************************
--- P0-5a: BUG FIX — free_cancel_until grace period must be 3 minutes
---        (mismatch: Foo CancellationPolicy.gracePeriod = 3 min but
---         Heng's accept RPC wrote 2 min -> wrong boundary behavior)
--- *********************************************************************
-
 CREATE OR REPLACE FUNCTION accept_available_ride(p_ride_id UUID)
 RETURNS JSONB
 LANGUAGE plpgsql
@@ -201,11 +188,6 @@ REVOKE ALL ON FUNCTION accept_carpool_group(UUID) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION accept_available_ride(UUID) TO authenticated;
 GRANT EXECUTE ON FUNCTION accept_carpool_group(UUID) TO authenticated;
 
-
--- *********************************************************************
--- P0-2: Ride group stepwise progression (pickup/dropoff stops)
--- *********************************************************************
-
 ALTER TABLE ride_groups
   ADD COLUMN IF NOT EXISTS current_stop_idx INTEGER
     CHECK (current_stop_idx IS NULL OR current_stop_idx BETWEEN 0 AND 3);
@@ -218,7 +200,6 @@ COMMENT ON COLUMN ride_groups.current_stop_idx IS
   'Convention: stops 0 and 1 are pickups (P1, P2), stops 2 and 3 are dropoffs (D1, D2).';
 COMMENT ON COLUMN ride_groups.stop_arrived_at IS
   'One arrival timestamp appended per successful advance_group_stop_pointer call.';
-
 
 CREATE OR REPLACE FUNCTION advance_group_stop_pointer(p_group_id UUID)
 RETURNS JSONB
@@ -247,7 +228,6 @@ BEGIN
     RETURN jsonb_build_object('success', FALSE, 'reason', 'all_stops_done');
   END IF;
 
-  -- Once we have made any progress -> promote both group and rides to en_route.
   IF v_group.status = 'driver_assigned' THEN
     UPDATE ride_groups SET status = 'en_route' WHERE id = v_group.id;
     UPDATE rides SET status = 'en_route' WHERE group_id = v_group.id;
@@ -276,25 +256,11 @@ $$;
 REVOKE ALL ON FUNCTION advance_group_stop_pointer(UUID) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION advance_group_stop_pointer(UUID) TO authenticated;
 
-
--- *********************************************************************
--- C-1: Missing indexes on rides (driver-side lookups + streaming)
--- *********************************************************************
-
 CREATE INDEX IF NOT EXISTS idx_rides_driver_id_status
   ON rides(driver_id, status) WHERE driver_id IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_rides_group_id
   ON rides(group_id) WHERE group_id IS NOT NULL;
-
-
--- *********************************************************************
--- C-2: rides table RLS (critical safety net - was missing entirely)
---      All driver-side mutations remain gated behind SECURITY DEFINER
---      RPCs (accept_* / transition_* / cancel_ride_and_settle_* etc.)
---      so the policies below intentionally give no direct UPDATE to
---      drivers.
--- *********************************************************************
 
 ALTER TABLE rides ENABLE ROW LEVEL SECURITY;
 

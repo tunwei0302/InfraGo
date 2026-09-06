@@ -1,7 +1,3 @@
--- InfraGo Foo module: fare quotes, cash/demo-wallet payments, wallet ledger
--- and cancellation settlement. Apply only after reviewing it with the owner
--- of rides (Kueh) since it extends the shared rides table.
-
 ALTER TABLE rides ADD COLUMN IF NOT EXISTS pickup_landmark_path TEXT;
 ALTER TABLE rides ADD COLUMN IF NOT EXISTS accepted_at TIMESTAMPTZ;
 ALTER TABLE rides ADD COLUMN IF NOT EXISTS free_cancel_until TIMESTAMPTZ;
@@ -80,9 +76,6 @@ CREATE TABLE IF NOT EXISTS wallet_transactions (
 CREATE INDEX IF NOT EXISTS idx_wallet_transactions_user
   ON wallet_transactions(wallet_user_id, created_at DESC);
 
--- Internal helper: derives the amount actually owed for a ride from its most
--- recent fare_quotes row, so payment RPCs never trust a client-supplied
--- amount. Only callable from other SECURITY DEFINER functions in this file.
 CREATE OR REPLACE FUNCTION resolve_current_fare_amount(p_ride_id UUID)
 RETURNS NUMERIC
 LANGUAGE plpgsql
@@ -133,9 +126,6 @@ BEGIN
 END;
 $$;
 
--- Coursework-only fake top-up so the demo wallet payment path is testable
--- without ever touching real money. Never expose an equivalent for real
--- currency.
 CREATE OR REPLACE FUNCTION demo_wallet_top_up(p_amount NUMERIC)
 RETURNS JSONB
 LANGUAGE plpgsql
@@ -351,9 +341,6 @@ EXCEPTION WHEN unique_violation THEN
 END;
 $$;
 
--- Reserves funds when a driver accepts. Deducts immediately into the
--- 'authorised' state rather than tracking a separate hold amount; capture
--- is then a pure status transition with no further balance movement.
 CREATE OR REPLACE FUNCTION authorise_wallet_payment(p_ride_id UUID)
 RETURNS JSONB
 LANGUAGE plpgsql
@@ -449,14 +436,6 @@ BEGIN
 END;
 $$;
 
--- Creates the ride, its fare_quotes row and its payment row in a single
--- transaction: if any step fails, none of it is persisted. Recomputes the
--- mvp_v1 fare from route distance/duration itself rather than trusting a
--- client-supplied amount, so the Dart FareEstimator is only ever a display
--- estimate; this function is the one authoritative price. p_client_request_id
--- is a client-generated idempotency key covering the whole operation: a
--- retry with the same key returns the original ride/payment instead of
--- creating a second ride.
 CREATE OR REPLACE FUNCTION create_ride_with_quote_and_payment(
   p_pickup_label TEXT,
   p_destination_label TEXT,
@@ -619,9 +598,6 @@ EXCEPTION WHEN unique_violation THEN
 END;
 $$;
 
--- Converts an unmatched shared request to Economy and updates its fare and
--- pending payment atomically. This prevents the rider from seeing a solo ride
--- that still charges the discounted shared amount.
 CREATE OR REPLACE FUNCTION continue_shared_ride_solo(p_ride_id UUID)
 RETURNS JSONB
 LANGUAGE plpgsql
@@ -683,10 +659,6 @@ BEGIN
 END;
 $$;
 
--- Cancels a ride and settles its current payment in one transaction so the
--- cancellation fee, refund and rides.cancellation_* fields are all written
--- exactly once. Cash never moves money: the fee is only recorded as the
--- prototype amount due.
 CREATE OR REPLACE FUNCTION cancel_ride_and_settle_payment(
   p_ride_id UUID,
   p_cancelled_by TEXT,
@@ -738,10 +710,6 @@ BEGIN
     cancellation_fee = p_fee
   WHERE id = p_ride_id;
 
-  -- A shared booking must not leave its partner trapped in a matched group.
-  -- Before driver assignment the partner returns to matching; after assignment
-  -- it keeps the same driver as a solo continuation. The cancelled group and
-  -- all of its obsolete member rows are retired in this same transaction.
   IF v_ride.group_id IS NOT NULL THEN
     UPDATE rides SET
       group_id = NULL,
@@ -859,17 +827,11 @@ CREATE POLICY fare_quotes_rider_read ON fare_quotes FOR SELECT USING (
   EXISTS (SELECT 1 FROM rides r WHERE r.id = fare_quotes.ride_id AND r.rider_id = auth.uid())
 );
 
--- Direct client insert is safe here: a quote is a single append-only row and
--- ownership is enforced below. No UPDATE/DELETE policy exists, so an
--- accepted quote can never be silently changed once written.
 DROP POLICY IF EXISTS fare_quotes_rider_insert ON fare_quotes;
 CREATE POLICY fare_quotes_rider_insert ON fare_quotes FOR INSERT WITH CHECK (
   EXISTS (SELECT 1 FROM rides r WHERE r.id = fare_quotes.ride_id AND r.rider_id = auth.uid())
 );
 
--- Payments and the wallet ledger have no client insert/update/delete
--- policy at all: every mutation goes through the SECURITY DEFINER
--- functions above, which is what makes them atomic and immutable.
 DROP POLICY IF EXISTS payments_payer_read ON payments;
 CREATE POLICY payments_payer_read ON payments FOR SELECT USING (payer_id = auth.uid());
 

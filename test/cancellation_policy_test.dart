@@ -126,19 +126,22 @@ void main() {
   group('scheduled ride cutoff', () {
     final departureTime = DateTime.utc(2026, 8, 29, 15, 0, 0);
 
-    test('stays free more than 15 minutes before departure even after grace expires', () {
-      final outcome = CancellationPolicy.evaluate(
-        cancelledBy: CancelledBy.rider,
-        rideStatus: 'driver_assigned',
-        confirmedFare: fare,
-        now: departureTime.subtract(const Duration(minutes: 20)),
-        acceptedAt: acceptedAt,
-        isScheduled: true,
-        departureTime: departureTime,
-      );
-      expect(outcome.isFree, isTrue);
-      expect(outcome.reason, 'scheduled_outside_cutoff');
-    });
+    test(
+      'stays free more than 15 minutes before departure even after grace expires',
+      () {
+        final outcome = CancellationPolicy.evaluate(
+          cancelledBy: CancelledBy.rider,
+          rideStatus: 'driver_assigned',
+          confirmedFare: fare,
+          now: departureTime.subtract(const Duration(minutes: 20)),
+          acceptedAt: acceptedAt,
+          isScheduled: true,
+          departureTime: departureTime,
+        );
+        expect(outcome.isFree, isTrue);
+        expect(outcome.reason, 'scheduled_outside_cutoff');
+      },
+    );
 
     test('fee applies exactly at the 15-minute cutoff', () {
       final outcome = CancellationPolicy.evaluate(

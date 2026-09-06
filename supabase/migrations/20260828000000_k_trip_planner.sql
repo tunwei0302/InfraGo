@@ -1,7 +1,3 @@
--- InfraGo Kueh module: trip planning, shared rides, nearby driver privacy,
--- transit-stop read contract and rider-driver chat lifecycle.
--- Apply only after reviewing it with the owners of rides/messages.
-
 ALTER TABLE rides ADD COLUMN IF NOT EXISTS service_type TEXT NOT NULL DEFAULT 'economy_4';
 ALTER TABLE rides ADD COLUMN IF NOT EXISTS passenger_count INTEGER NOT NULL DEFAULT 1;
 ALTER TABLE rides ADD COLUMN IF NOT EXISTS departure_time TIMESTAMPTZ NOT NULL DEFAULT now();
@@ -295,9 +291,7 @@ REVOKE ALL ON FUNCTION create_carpool_match(
   UUID, UUID, INTEGER, TEXT[], INTEGER[], DOUBLE PRECISION, DOUBLE PRECISION,
   DOUBLE PRECISION, DOUBLE PRECISION, DOUBLE PRECISION
 ) FROM PUBLIC;
--- Drivers claim a matched group as one atomic unit: the group row and every
--- member ride become driver_assigned in the same transaction, which is also
--- the precondition the chat insert policy needs to open the conversations.
+
 CREATE OR REPLACE FUNCTION accept_carpool_group(p_group_id UUID)
 RETURNS JSONB
 LANGUAGE plpgsql
@@ -355,9 +349,7 @@ ALTER TABLE ride_groups ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ride_group_members ENABLE ROW LEVEL SECURITY;
 ALTER TABLE assigned_driver_location ENABLE ROW LEVEL SECURITY;
 ALTER TABLE transit_stops ENABLE ROW LEVEL SECURITY;
--- No policies: the coarse presence table is database-owned. Drivers publish
--- only through upsert_my_driver_presence, which derives the anonymised id
--- server-side; riders read it only through nearby_driver_presence.
+
 ALTER TABLE driver_presence ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS ride_groups_participant_read ON ride_groups;
@@ -393,8 +385,6 @@ DROP POLICY IF EXISTS transit_stops_authenticated_read ON transit_stops;
 CREATE POLICY transit_stops_authenticated_read ON transit_stops FOR SELECT
 USING (auth.uid() IS NOT NULL);
 
--- Each ride has its own rider-driver conversation. A rider never receives the
--- other rider's messages merely because both rides belong to one group.
 ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS messages_trip_participant_read ON messages;
 CREATE POLICY messages_trip_participant_read ON messages FOR SELECT USING (

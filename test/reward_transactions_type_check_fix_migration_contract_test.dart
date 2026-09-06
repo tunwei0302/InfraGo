@@ -8,12 +8,13 @@ void main() {
   ).readAsStringSync();
 
   test('re-widens reward_transactions_type_check to include earn', () {
-    expect(sql, contains('DROP CONSTRAINT IF EXISTS reward_transactions_type_check'));
     expect(
       sql,
-      contains(
-        "CHECK (type IN ('demo_grant', 'earn', 'redeem', 'restore'))",
-      ),
+      contains('DROP CONSTRAINT IF EXISTS reward_transactions_type_check'),
+    );
+    expect(
+      sql,
+      contains("CHECK (type IN ('demo_grant', 'earn', 'redeem', 'restore'))"),
     );
   });
 }

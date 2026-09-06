@@ -1,6 +1,3 @@
--- Deployment repair: the original Foo payment migration was applied before
--- continue_shared_ride_solo was appended to that already-used timestamp.
--- Re-declare the same RPC in a new migration so existing projects receive it.
 CREATE OR REPLACE FUNCTION continue_shared_ride_solo(p_ride_id UUID)
 RETURNS JSONB
 LANGUAGE plpgsql

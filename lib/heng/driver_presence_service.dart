@@ -120,8 +120,6 @@ class DriverPresenceService {
             },
           );
         } on PostgrestException catch (error) {
-          // A shared rider stops receiving live driver coordinates as soon as
-          // their own drop-off completes. Keep publishing for the other rider.
           if (!error.message.contains('ride_not_assigned')) rethrow;
         }
       }

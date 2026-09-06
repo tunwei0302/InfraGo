@@ -26,7 +26,8 @@ class PendingIdentitySubmission {
       contact: row['contact']?.toString() ?? '-',
       licencePath: row['licence_path']?.toString() ?? '',
       selfiePath: row['selfie_path']?.toString() ?? '',
-      submittedAt: DateTime.tryParse(row['submitted_at']?.toString() ?? '') ??
+      submittedAt:
+          DateTime.tryParse(row['submitted_at']?.toString() ?? '') ??
           DateTime.fromMillisecondsSinceEpoch(0),
     );
   }
@@ -86,31 +87,30 @@ class PendingVehicleSubmission {
   bool get requestsSixSeater => serviceEligibility.contains('six_seater');
 }
 
-typedef AdminRowsLoader = Future<List<Map<String, dynamic>>> Function(
-  String from, {
-  required String statusColumn,
-  required String statusValue,
-  int? limit,
-});
+typedef AdminRowsLoader =
+    Future<List<Map<String, dynamic>>> Function(
+      String from, {
+      required String statusColumn,
+      required String statusValue,
+      int? limit,
+    });
 
 class AdminReviewRepository {
   AdminReviewRepository(
     SupabaseClient client, {
     RpcCaller? rpcCaller,
     AdminRowsLoader? loadRows,
-  })  : _rpc = rpcCaller ?? client.rpc,
-        _loadRows = loadRows ??
-            ((from,
-                {required statusColumn,
-                required statusValue,
-                limit}) async {
-              dynamic query = client
-                  .from(from)
-                  .select()
-                  .eq(statusColumn, statusValue);
-              if (limit != null) query = query.limit(limit);
-              return List<Map<String, dynamic>>.from(await query);
-            });
+  }) : _rpc = rpcCaller ?? client.rpc,
+       _loadRows =
+           loadRows ??
+           ((from, {required statusColumn, required statusValue, limit}) async {
+             dynamic query = client
+                 .from(from)
+                 .select()
+                 .eq(statusColumn, statusValue);
+             if (limit != null) query = query.limit(limit);
+             return List<Map<String, dynamic>>.from(await query);
+           });
 
   final RpcCaller _rpc;
   final AdminRowsLoader _loadRows;

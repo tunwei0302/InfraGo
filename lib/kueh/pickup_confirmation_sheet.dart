@@ -218,11 +218,7 @@ class PickupConfirmationSheet extends StatefulWidget {
         ),
       ),
     );
-    // Not disposing noteController here: the sheet's TextField can still be
-    // mid exit-animation when this Future resolves (showModalBottomSheet
-    // completes on Navigator.pop, before the close transition finishes), so
-    // disposing immediately risks "used after being disposed" on the still
-    // mounted TextField.
+
     return confirmed;
   }
 

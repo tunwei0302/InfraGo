@@ -40,8 +40,6 @@ void _validateStopOrder(List<int> stopOrder) {
   }
 }
 
-/// Maps each ride id to the anonymous rider slot used by stop codes:
-/// 0/2 = Rider 1 pickup/drop-off and 1/3 = Rider 2 pickup/drop-off.
 Map<String, int> buildGroupRideSlots({
   required List<int> stopOrder,
   required Iterable<GroupMemberStops> members,

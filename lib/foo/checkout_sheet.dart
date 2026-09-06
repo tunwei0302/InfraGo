@@ -109,7 +109,8 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
       final result = await widget.paymentRepository.topUpDemoWallet(50);
       if (!mounted) return;
       setState(() {
-        _walletBalance = (result['balance'] as num?)?.toDouble() ?? _walletBalance;
+        _walletBalance =
+            (result['balance'] as num?)?.toDouble() ?? _walletBalance;
       });
     } catch (error) {
       if (!mounted) return;
@@ -157,109 +158,112 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.outlineVariant,
-                  borderRadius: BorderRadius.circular(2),
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.outlineVariant,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: AppSpacing.base),
-            Text('Checkout', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: AppSpacing.xs),
-            Text(
-              'Amount due: ${widget.currency} ${_amountDue.toStringAsFixed(2)}',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            if (_redeemRewards && _maxRedeemablePoints > 0)
-              Text(
-                '${widget.currency} ${widget.amount.toStringAsFixed(2)} '
-                '- ${widget.currency} ${_redemptionAmount.toStringAsFixed(2)} reward discount',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            const Text(
-              'Coursework estimate. Not a real charge.',
-              style: TextStyle(fontSize: 12),
-            ),
-            const SizedBox(height: AppSpacing.md),
-            RadioGroup<PaymentMethod>(
-              groupValue: _method,
-              onChanged: (value) => setState(() => _method = value!),
-              child: Column(
-                children: [
-                  RadioListTile<PaymentMethod>(
-                    value: PaymentMethod.cash,
-                    title: const Text('Cash'),
-                    subtitle: const Text(
-                      'Pay the driver when the ride completes',
-                    ),
-                  ),
-                  RadioListTile<PaymentMethod>(
-                    value: PaymentMethod.demoWallet,
-                    title: const Text('Coursework Demo Wallet'),
-                    subtitle: _isLoadingBalance
-                        ? const Text('Loading balance…')
-                        : Text(
-                            _walletBalance == null
-                                ? 'Balance unavailable'
-                                : 'Balance: ${widget.currency} ${_walletBalance!.toStringAsFixed(2)}',
-                          ),
-                  ),
-                ],
-              ),
-            ),
-            if (_method == PaymentMethod.demoWallet) ...[
+              const SizedBox(height: AppSpacing.base),
+              Text('Checkout', style: Theme.of(context).textTheme.titleMedium),
               const SizedBox(height: AppSpacing.xs),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: TextButton(
-                  onPressed: _isToppingUp ? null : _topUp,
-                  child: Text(
-                    _isToppingUp ? 'Adding funds…' : 'Add RM50 demo funds',
-                  ),
-                ),
+              Text(
+                'Amount due: ${widget.currency} ${_amountDue.toStringAsFixed(2)}',
+                style: Theme.of(context).textTheme.titleLarge,
               ),
-              if (_walletInsufficient)
+              if (_redeemRewards && _maxRedeemablePoints > 0)
                 Text(
-                  'Insufficient demo balance for this ride.',
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                  '${widget.currency} ${widget.amount.toStringAsFixed(2)} '
+                  '- ${widget.currency} ${_redemptionAmount.toStringAsFixed(2)} reward discount',
+                  style: Theme.of(context).textTheme.bodySmall,
                 ),
-            ],
-            if (_maxRedeemablePoints > 0)
-              CheckboxListTile(
-                value: _redeemRewards,
-                onChanged: (value) =>
-                    setState(() => _redeemRewards = value ?? false),
-                controlAffinity: ListTileControlAffinity.leading,
-                title: Text(
-                  'Redeem $_maxRedeemablePoints reward points for '
-                  '${widget.currency} ${(_maxRedeemablePoints / 100).toStringAsFixed(2)} off',
-                ),
-                subtitle: Text('Balance: $_rewardBalance points'),
+              const Text(
+                'Coursework estimate. Not a real charge.',
+                style: TextStyle(fontSize: 12),
               ),
-            if (_error != null) ...[
-              const SizedBox(height: AppSpacing.xs),
-              Text(
-                _error!,
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
-              ),
-            ],
-            const SizedBox(height: AppSpacing.md),
-            ElevatedButton(
-              onPressed: _walletInsufficient
-                  ? null
-                  : () => Navigator.of(context).pop(
-                      CheckoutSelection(
-                        method: _method,
-                        rewardPointsToRedeem:
-                            _redeemRewards ? _maxRedeemablePoints : 0,
+              const SizedBox(height: AppSpacing.md),
+              RadioGroup<PaymentMethod>(
+                groupValue: _method,
+                onChanged: (value) => setState(() => _method = value!),
+                child: Column(
+                  children: [
+                    RadioListTile<PaymentMethod>(
+                      value: PaymentMethod.cash,
+                      title: const Text('Cash'),
+                      subtitle: const Text(
+                        'Pay the driver when the ride completes',
                       ),
                     ),
-              child: const Text('Confirm payment method'),
-            ),
+                    RadioListTile<PaymentMethod>(
+                      value: PaymentMethod.demoWallet,
+                      title: const Text('Coursework Demo Wallet'),
+                      subtitle: _isLoadingBalance
+                          ? const Text('Loading balance…')
+                          : Text(
+                              _walletBalance == null
+                                  ? 'Balance unavailable'
+                                  : 'Balance: ${widget.currency} ${_walletBalance!.toStringAsFixed(2)}',
+                            ),
+                    ),
+                  ],
+                ),
+              ),
+              if (_method == PaymentMethod.demoWallet) ...[
+                const SizedBox(height: AppSpacing.xs),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton(
+                    onPressed: _isToppingUp ? null : _topUp,
+                    child: Text(
+                      _isToppingUp ? 'Adding funds…' : 'Add RM50 demo funds',
+                    ),
+                  ),
+                ),
+                if (_walletInsufficient)
+                  Text(
+                    'Insufficient demo balance for this ride.',
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+              ],
+              if (_maxRedeemablePoints > 0)
+                CheckboxListTile(
+                  value: _redeemRewards,
+                  onChanged: (value) =>
+                      setState(() => _redeemRewards = value ?? false),
+                  controlAffinity: ListTileControlAffinity.leading,
+                  title: Text(
+                    'Redeem $_maxRedeemablePoints reward points for '
+                    '${widget.currency} ${(_maxRedeemablePoints / 100).toStringAsFixed(2)} off',
+                  ),
+                  subtitle: Text('Balance: $_rewardBalance points'),
+                ),
+              if (_error != null) ...[
+                const SizedBox(height: AppSpacing.xs),
+                Text(
+                  _error!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              ],
+              const SizedBox(height: AppSpacing.md),
+              ElevatedButton(
+                onPressed: _walletInsufficient
+                    ? null
+                    : () => Navigator.of(context).pop(
+                        CheckoutSelection(
+                          method: _method,
+                          rewardPointsToRedeem: _redeemRewards
+                              ? _maxRedeemablePoints
+                              : 0,
+                        ),
+                      ),
+                child: const Text('Confirm payment method'),
+              ),
             ],
           ),
         ),

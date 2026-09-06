@@ -1,8 +1,3 @@
--- InfraGo Tey module T7: SDG and operational analytics computed from real
--- ride/group/payment data, aggregated server-side so no rider/driver RLS
--- row is ever exposed individually. Read-only, no private transaction
--- detail (no ride_id/payer_id) leaves this function.
-
 CREATE OR REPLACE FUNCTION sdg_operational_analytics(
   p_start TIMESTAMPTZ DEFAULT NULL,
   p_end TIMESTAMPTZ DEFAULT NULL
@@ -52,9 +47,7 @@ BEGIN
         JOIN ride_groups g ON g.id = m.group_id
         WHERE g.status = 'completed' AND g.completed_at BETWEEN v_start AND v_end
       ),
-      -- Savings = economy-equivalent solo fare (fare_quotes.solo_amount, which
-      -- is always populated) minus what was actually charged for the shared
-      -- ride. Clamped at 0 so a bad/negative imported fare never shows a loss.
+
       'estimated_savings_myr', (
         SELECT ROUND(COALESCE(SUM(GREATEST(
           COALESCE(lq.solo_amount, 0) - COALESCE(p.final_amount, lq.shared_amount, lq.solo_amount, 0),
@@ -133,8 +126,6 @@ BEGIN
       ), 0)
     ),
 
-    -- Aggregate counts/totals only: no ride_id, payer_id or other per-user
-    -- transaction detail leaves this function.
     'payments', COALESCE((
       SELECT jsonb_agg(jsonb_build_object(
         'method', x.method, 'status', x.status, 'count', x.n, 'total_myr', x.total

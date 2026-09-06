@@ -76,26 +76,29 @@ void main() {
       );
     });
 
-    test('inserts exactly the row the table expects, trimmed and owned by the caller', () async {
-      late Map<String, dynamic> insertedRow;
-      final repository = WeatherLocationRepository(
-        null,
-        currentUserId: () => 'user-1',
-        insert: (row) async {
-          insertedRow = row;
-          return _row(label: 'Home');
-        },
-      );
-      final saved = await repository.create(
-        label: '  Home  ',
-        point: const LatLng(3.1390, 101.6869),
-      );
-      expect(insertedRow['user_id'], 'user-1');
-      expect(insertedRow['label'], 'Home');
-      expect(insertedRow['latitude'], 3.1390);
-      expect(insertedRow['longitude'], 101.6869);
-      expect(saved.label, 'Home');
-    });
+    test(
+      'inserts exactly the row the table expects, trimmed and owned by the caller',
+      () async {
+        late Map<String, dynamic> insertedRow;
+        final repository = WeatherLocationRepository(
+          null,
+          currentUserId: () => 'user-1',
+          insert: (row) async {
+            insertedRow = row;
+            return _row(label: 'Home');
+          },
+        );
+        final saved = await repository.create(
+          label: '  Home  ',
+          point: const LatLng(3.1390, 101.6869),
+        );
+        expect(insertedRow['user_id'], 'user-1');
+        expect(insertedRow['label'], 'Home');
+        expect(insertedRow['latitude'], 3.1390);
+        expect(insertedRow['longitude'], 101.6869);
+        expect(saved.label, 'Home');
+      },
+    );
 
     test('wraps a duplicate-name conflict from the unique index', () async {
       final repository = WeatherLocationRepository(
@@ -129,30 +132,38 @@ void main() {
       );
     });
 
-    test('sends the trimmed label, new coordinates and a bumped updated_at', () async {
-      late String updatedId;
-      late Map<String, dynamic> patch;
-      final repository = WeatherLocationRepository(
-        null,
-        update: (id, p) async {
-          updatedId = id;
-          patch = p;
-          return _row(id: id, label: 'Office', latitude: 3.2, longitude: 101.7);
-        },
-      );
-      final updated = await repository.update(
-        id: 'loc-1',
-        label: '  Office  ',
-        point: const LatLng(3.2, 101.7),
-      );
-      expect(updatedId, 'loc-1');
-      expect(patch['label'], 'Office');
-      expect(patch['latitude'], 3.2);
-      expect(patch['longitude'], 101.7);
-      expect(patch.containsKey('updated_at'), isTrue);
-      expect(updated.label, 'Office');
-      expect(updated.point, const LatLng(3.2, 101.7));
-    });
+    test(
+      'sends the trimmed label, new coordinates and a bumped updated_at',
+      () async {
+        late String updatedId;
+        late Map<String, dynamic> patch;
+        final repository = WeatherLocationRepository(
+          null,
+          update: (id, p) async {
+            updatedId = id;
+            patch = p;
+            return _row(
+              id: id,
+              label: 'Office',
+              latitude: 3.2,
+              longitude: 101.7,
+            );
+          },
+        );
+        final updated = await repository.update(
+          id: 'loc-1',
+          label: '  Office  ',
+          point: const LatLng(3.2, 101.7),
+        );
+        expect(updatedId, 'loc-1');
+        expect(patch['label'], 'Office');
+        expect(patch['latitude'], 3.2);
+        expect(patch['longitude'], 101.7);
+        expect(patch.containsKey('updated_at'), isTrue);
+        expect(updated.label, 'Office');
+        expect(updated.point, const LatLng(3.2, 101.7));
+      },
+    );
 
     test('wraps an update failure in WeatherLocationException', () async {
       final repository = WeatherLocationRepository(

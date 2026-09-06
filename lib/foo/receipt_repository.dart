@@ -131,7 +131,8 @@ class ReceiptData {
       status: json['status'] as String,
       departureTime: DateTime.parse(json['departure_time'] as String),
       routeDistanceMeters: (json['route_distance_meters'] as num?)?.toDouble(),
-      routeDurationSeconds: (json['route_duration_seconds'] as num?)?.toDouble(),
+      routeDurationSeconds: (json['route_duration_seconds'] as num?)
+          ?.toDouble(),
       cancelledAt: json['cancelled_at'] == null
           ? null
           : DateTime.parse(json['cancelled_at'] as String),

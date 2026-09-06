@@ -34,24 +34,24 @@ void main() {
     expect(result, isNull);
   });
 
-  test('denied camera/gallery access surfaces a friendly message, not a crash', () async {
-    final service = PickupLandmarkService(
-      pickImage: (_) => throw PlatformException(code: 'camera_access_denied'),
-    );
-    await expectLater(
-      () => service.pick(ImageSource.camera),
-      throwsA(isA<PickupLandmarkValidationException>()),
-    );
-  });
+  test(
+    'denied camera/gallery access surfaces a friendly message, not a crash',
+    () async {
+      final service = PickupLandmarkService(
+        pickImage: (_) => throw PlatformException(code: 'camera_access_denied'),
+      );
+      await expectLater(
+        () => service.pick(ImageSource.camera),
+        throwsA(isA<PickupLandmarkValidationException>()),
+      );
+    },
+  );
 
   test('accepts a valid small PNG and reports its extension', () async {
     final bytes = await _tinyPngBytes();
     final service = PickupLandmarkService(
-      pickImage: (_) async => XFile.fromData(
-        bytes,
-        name: 'landmark.png',
-        mimeType: 'image/png',
-      ),
+      pickImage: (_) async =>
+          XFile.fromData(bytes, name: 'landmark.png', mimeType: 'image/png'),
     );
     final result = await service.pick(ImageSource.gallery);
     expect(result, isNotNull);
@@ -82,8 +82,11 @@ void main() {
     oversized[0] = 0xFF;
     oversized[1] = 0xD8;
     final service = PickupLandmarkService(
-      pickImage: (_) async =>
-          XFile.fromData(oversized, name: 'landmark.jpg', mimeType: 'image/jpeg'),
+      pickImage: (_) async => XFile.fromData(
+        oversized,
+        name: 'landmark.jpg',
+        mimeType: 'image/jpeg',
+      ),
     );
     await expectLater(
       () => service.pick(ImageSource.camera),

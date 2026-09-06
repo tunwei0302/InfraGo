@@ -114,7 +114,10 @@ class _RewardsScreenState extends State<RewardsScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('Points balance', style: AppTextStyles.labelCaps),
+                          Text(
+                            'Points balance',
+                            style: AppTextStyles.labelCaps,
+                          ),
                           const SizedBox(height: AppSpacing.xs),
                           Text(
                             '${_balance ?? 0}',
@@ -148,9 +151,7 @@ class _RewardsScreenState extends State<RewardsScreen> {
                   if (_history.isEmpty)
                     const Padding(
                       padding: EdgeInsets.symmetric(vertical: AppSpacing.lg),
-                      child: Center(
-                        child: Text('No reward activity yet.'),
-                      ),
+                      child: Center(child: Text('No reward activity yet.')),
                     )
                   else
                     ..._history.map(
@@ -166,9 +167,7 @@ class _RewardsScreenState extends State<RewardsScreen> {
                             '${tx.createdAt.toLocal().day}/${tx.createdAt.toLocal().month}/${tx.createdAt.toLocal().year}',
                           ),
                           trailing: Text(
-                            tx.points > 0
-                                ? '+${tx.points}'
-                                : '${tx.points}',
+                            tx.points > 0 ? '+${tx.points}' : '${tx.points}',
                             style: theme.textTheme.titleMedium?.copyWith(
                               color: _typeColor(tx.type, scheme),
                               fontWeight: FontWeight.bold,

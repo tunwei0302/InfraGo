@@ -31,7 +31,10 @@ class _EnrichedOrder {
 }
 
 class _PickupLeg {
-  const _PickupLeg({required this.distanceMeters, required this.durationSeconds});
+  const _PickupLeg({
+    required this.distanceMeters,
+    required this.durationSeconds,
+  });
   final double distanceMeters;
   final double durationSeconds;
 }
@@ -42,9 +45,9 @@ class _GroupStopChip {
     required this.riderSlot,
     required this.orderIndex,
   });
-  final String kind; // 'pickup' | 'dropoff'
-  final int riderSlot; // 1 or 2 (anonymous — A then B)
-  final int orderIndex; // 0..3, position in the optimised order
+  final String kind;
+  final int riderSlot;
+  final int orderIndex;
 }
 
 class AvailableOrdersScreen extends StatefulWidget {
@@ -93,9 +96,7 @@ class _AvailableOrdersScreenState extends State<AvailableOrdersScreen> {
       for (final rideId in rideIds) {
         try {
           await _paymentRepository.authoriseWalletPayment(rideId);
-        } catch (_) {
-          // Cash rides have no wallet authorisation to reserve.
-        }
+        } catch (_) {}
       }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -208,15 +209,18 @@ class _AvailableOrdersScreenState extends State<AvailableOrdersScreen> {
             return FutureBuilder<_EnrichedOrder>(
               future: _enrichOrder(order, vehicle),
               builder: (context, snapshot) {
-                final service = order['service_type']?.toString() ?? 'economy_4';
-                final passengers = (order['passenger_count'] as num?)?.toInt() ?? 1;
+                final service =
+                    order['service_type']?.toString() ?? 'economy_4';
+                final passengers =
+                    (order['passenger_count'] as num?)?.toInt() ?? 1;
                 final isGroup = order['group_id'] != null;
                 final knownCompatible =
                     isGroup ||
                     (vehicle.passengerCapacity >= passengers &&
                         (service != 'six_seater' ||
                             vehicle.passengerCapacity >= 6));
-                final key = order['group_id']?.toString() ?? order['id'].toString();
+                final key =
+                    order['group_id']?.toString() ?? order['id'].toString();
                 final enriched = snapshot.data;
                 return Card(
                   child: Padding(
@@ -290,7 +294,8 @@ class _AvailableOrdersScreenState extends State<AvailableOrdersScreen> {
                         SizedBox(
                           width: double.infinity,
                           child: FilledButton(
-                            onPressed: knownCompatible && !_accepting.contains(key)
+                            onPressed:
+                                knownCompatible && !_accepting.contains(key)
                                 ? () => _accept(order)
                                 : null,
                             child: Text(
@@ -334,9 +339,7 @@ class _AvailableOrdersScreenState extends State<AvailableOrdersScreen> {
           distanceMeters: route.distanceMeters.toDouble(),
           durationSeconds: route.durationSeconds.toDouble(),
         );
-      } catch (_) {
-        // Fail silently — we still show the order without pickup ETA.
-      }
+      } catch (_) {}
     }
 
     List<_GroupStopChip>? stopOverview;
@@ -345,8 +348,7 @@ class _AvailableOrdersScreenState extends State<AvailableOrdersScreen> {
       try {
         final groupRow = await supabase
             .from('ride_groups')
-            .select(
-              'optimised_stop_order, vehicle_km_avoided')
+            .select('optimised_stop_order, vehicle_km_avoided')
             .eq('id', order['group_id'])
             .maybeSingle();
         if (groupRow != null) {
@@ -358,17 +360,15 @@ class _AvailableOrdersScreenState extends State<AvailableOrdersScreen> {
           if (stops != null && stops.isNotEmpty) {
             stopOverview = [
               for (int i = 0; i < stops.length; i++)
-              _GroupStopChip(
-                kind: stops[i] < 2 ? 'pickup' : 'dropoff',
-                riderSlot: stops[i].isEven ? 1 : 2,
-                orderIndex: i,
-              ),
+                _GroupStopChip(
+                  kind: stops[i] < 2 ? 'pickup' : 'dropoff',
+                  riderSlot: stops[i].isEven ? 1 : 2,
+                  orderIndex: i,
+                ),
             ];
           }
         }
-      } catch (_) {
-        // stop overview is optional
-      }
+      } catch (_) {}
     }
 
     return _EnrichedOrder(
@@ -437,16 +437,15 @@ class _GroupStopOverview extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final sorted = stops.toList()..sort((a, b) => a.orderIndex.compareTo(b.orderIndex));
+    final sorted = stops.toList()
+      ..sort((a, b) => a.orderIndex.compareTo(b.orderIndex));
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(AppSpacing.gutter),
       decoration: BoxDecoration(
         color: theme.colorScheme.secondaryContainer.withValues(alpha: 0.4),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: theme.colorScheme.outlineVariant,
-        ),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -467,9 +466,7 @@ class _GroupStopOverview extends StatelessWidget {
                   visualDensity: VisualDensity.compact,
                   backgroundColor: theme.colorScheme.tertiaryContainer,
                   side: BorderSide.none,
-                  label: Text(
-                    'Saves ${savedKm!.toStringAsFixed(1)} km',
-                  ),
+                  label: Text('Saves ${savedKm!.toStringAsFixed(1)} km'),
                 ),
             ],
           ),

@@ -12,17 +12,6 @@ class CarpoolServiceException implements Exception {
   String toString() => message;
 }
 
-/// Kueh-owned RPC-to-SQL mapping:
-///
-/// Contract name                | SQL migration name                | Owner
-/// -----------------------------|-----------------------------------|-------
-/// match_carpool_group (atomic) | create_carpool_match              | Kueh
-/// accept_carpool_group         | accept_carpool_group              | Heng (driver claim)
-/// cancel group membership      | cancel_carpool_group_membership   | Kueh
-///
-/// The SQL function `create_carpool_match` (in migration
-/// 20260828000000_k_trip_planner.sql) is the authority for K4 atomic
-/// match persistence. Both contract aliases refer to the same RPC.
 class SupabaseCarpoolService {
   SupabaseCarpoolService({required this.client, required this.matcher});
 
@@ -58,18 +47,6 @@ class SupabaseCarpoolService {
       throw const CarpoolServiceException('Sign in to accept a shared match.');
     }
 
-    // -----------------------------------------------------------------------
-    // SQL RPC contract (see migration create_carpool_match L211-L213):
-    //   auth.uid() MUST be v_a.rider_id OR v_b.rider_id (owner check).
-    // Internally:
-    //   stop_order[0] = rider A pickup, stop_order[1] = rider B pickup
-    //   stop_order[2] = rider A dropoff, stop_order[3] = rider B dropoff
-    //   p_detour_a / p_detour_b correspond to rider A / B respectively.
-    //
-    // If match.requests[0] is NOT the current user, swap A/B so p_ride_a
-    // always points at the calling rider. Then remap stop_order indices and
-    // swap detour values to preserve the same physical stop sequence.
-    // -----------------------------------------------------------------------
     final a = match.requests[0];
     final b = match.requests[1];
     final aIsCaller = a.riderId == currentUid;
@@ -93,9 +70,6 @@ class SupabaseCarpoolService {
             : match.riderDetourPercent[0]) ??
         0;
 
-    // stop_order remap when swapping caller from B → A:
-    //   original A pickup idx 0 ↔ original B pickup idx 1
-    //   original A dropoff idx 2 ↔ original B dropoff idx 3
     final originalStopOrder = match.bestRoute.stopOrder;
     final stopOrder = aIsCaller
         ? originalStopOrder
@@ -127,9 +101,6 @@ class SupabaseCarpoolService {
           },
         );
       } catch (error) {
-        // Older team databases exposed the original nine-argument function.
-        // Keep matching usable during a rolling migration; the new wrapper
-        // persists vehicle-km avoided once the migration is installed.
         if (!error.toString().contains('PGRST202')) rethrow;
         result = await client.rpc('create_carpool_match', params: baseParams);
       }
